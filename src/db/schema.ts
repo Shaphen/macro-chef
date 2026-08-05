@@ -87,6 +87,11 @@ export const weightEntries = sqliteTable('weight_entries', {
   day: text('day').notNull().unique(),
   weightKg: real('weight_kg').notNull(),
   loggedAt: integer('logged_at').notNull(),
+  // Where the weigh-in came from (PLAN Part 2.2). Health syncs must never
+  // overwrite a 'manual' entry — the user's own number always wins.
+  source: text('source', { enum: ['manual', 'healthkit', 'healthconnect'] })
+    .notNull()
+    .default('manual'),
 });
 
 export const settings = sqliteTable('settings', {
@@ -100,6 +105,10 @@ export const settings = sqliteTable('settings', {
   fatTargetG: integer('fat_target_g'),
   goalNote: text('goal_note'),
   onboarded: integer('onboarded').notNull().default(0),
+  // Base URL of the deployed macrochef-api Vercel project (PLAN §11 "USDA
+  // generic-food search"). Null/empty = feature off; the add-food flow then
+  // only offers local + Open Food Facts search.
+  usdaProxyUrl: text('usda_proxy_url'),
 });
 
 export type Food = typeof foods.$inferSelect;
@@ -107,7 +116,9 @@ export type NewFood = typeof foods.$inferInsert;
 export type LogEntry = typeof logEntries.$inferSelect;
 export type NewLogEntry = typeof logEntries.$inferInsert;
 export type Recipe = typeof recipes.$inferSelect;
+export type NewRecipe = typeof recipes.$inferInsert;
 export type RecipeItem = typeof recipeItems.$inferSelect;
+export type NewRecipeItem = typeof recipeItems.$inferInsert;
 export type WeightEntry = typeof weightEntries.$inferSelect;
 export type Settings = typeof settings.$inferSelect;
 export type Meal = LogEntry['meal'];

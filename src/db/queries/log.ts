@@ -1,4 +1,4 @@
-import { asc, eq, gte, sql } from 'drizzle-orm';
+import { and, asc, eq, gte, lte, sql } from 'drizzle-orm';
 
 import type { MacroTotals } from '../../lib/nutrition';
 import { db } from '../client';
@@ -23,8 +23,54 @@ export function addEntry(
     .get();
 }
 
+export function getEntry(id: number): LogEntry | undefined {
+  return db.select().from(logEntries).where(eq(logEntries.id, id)).get();
+}
+
+/**
+ * Patch an existing entry (edit-amount / move-meal flows). The caller is
+ * responsible for having recomputed the macro snapshot when the amount
+ * changed — this function deliberately doesn't know any nutrition math
+ * (that lives in lib/nutrition.ts only, PLAN §5).
+ */
+export function updateEntry(id: number, patch: Partial<NewLogEntry>): void {
+  db.update(logEntries).set(patch).where(eq(logEntries.id, id)).run();
+}
+
+/**
+ * Copy an entry to another day/meal ("copy yesterday's breakfast", PLAN §8).
+ * Copies the stored SNAPSHOT verbatim rather than recomputing from the
+ * current food — a duplicate of what you ate should claim exactly what the
+ * original claimed, even if the food's values were edited since.
+ */
+export function duplicateEntry(id: number, day: string, meal: LogEntry['meal']): LogEntry | undefined {
+  const src = getEntry(id);
+  if (!src) return undefined;
+  const { id: _id, ...rest } = src;
+  return db
+    .insert(logEntries)
+    .values({ ...rest, day, meal, loggedAt: Date.now() })
+    .returning()
+    .get();
+}
+
 export function deleteEntry(id: number): void {
   db.delete(logEntries).where(eq(logEntries.id, id)).run();
+}
+
+/**
+ * Which days in [fromDay, toDay] have at least one entry — powers the
+ * "logged day" dots on the Log week strip and month calendar (PLAN Part 2.1).
+ * DISTINCT over the indexed `day` column keeps it cheap even with years of
+ * history, so callers can re-run it every time the visible week changes.
+ */
+export function loggedDaysBetween(fromDay: string, toDay: string): Set<string> {
+  const rows = db
+    .selectDistinct({ day: logEntries.day })
+    .from(logEntries)
+    .where(and(gte(logEntries.day, fromDay), lte(logEntries.day, toDay)))
+    .all();
+  return new Set(rows.map((r) => r.day));
 }
 
 /** Day totals are always computed on read, never stored (PLAN §5). */

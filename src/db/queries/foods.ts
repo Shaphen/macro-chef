@@ -31,6 +31,19 @@ export function getFood(id: number): Food | undefined {
   return db.select().from(foods).where(eq(foods.id, id)).get();
 }
 
+/**
+ * Dedupe hook for online-sourced foods without a barcode (USDA hits key on
+ * fdcId): picking the same remote result twice reuses the saved local row
+ * instead of inserting a duplicate.
+ */
+export function getFoodBySource(source: Food['source'], sourceId: string): Food | undefined {
+  return db
+    .select()
+    .from(foods)
+    .where(and(notDeleted, eq(foods.source, source), eq(foods.sourceId, sourceId)))
+    .get();
+}
+
 export function getFoodByBarcode(barcode: string): Food | undefined {
   return db
     .select()

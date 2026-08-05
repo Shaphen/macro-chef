@@ -99,6 +99,16 @@ const MIGRATIONS: string[] = [
   );
   INSERT INTO settings (id) VALUES (1);
   `,
+  // v2 — Part 2.2 groundwork + USDA proxy (PLAN Part 2 / §11):
+  //  - weight_entries.source distinguishes manual weigh-ins from future
+  //    HealthKit/Health Connect imports so sync can dedupe without ever
+  //    silently overwriting something the user typed by hand.
+  //  - settings.usda_proxy_url stores the deployed macrochef-api base URL;
+  //    empty/null means "no proxy" and the app quietly stays local + OFF only.
+  `
+  ALTER TABLE weight_entries ADD COLUMN source TEXT NOT NULL DEFAULT 'manual';
+  ALTER TABLE settings ADD COLUMN usda_proxy_url TEXT;
+  `,
 ];
 
 export const sqlite = openDatabaseSync('macrochef.db');
