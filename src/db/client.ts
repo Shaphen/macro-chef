@@ -104,7 +104,7 @@ const MIGRATIONS: string[] = [
 export const sqlite = openDatabaseSync('macrochef.db');
 export const db = drizzle(sqlite, { schema });
 
-export function runMigrations(): void {
+function runMigrations(): void {
   sqlite.execSync('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;');
   const row = sqlite.getFirstSync<{ user_version: number }>('PRAGMA user_version');
   const current = row?.user_version ?? 0;
@@ -115,3 +115,7 @@ export function runMigrations(): void {
     });
   }
 }
+
+// Module side-effect: every DB consumer imports this file, so the schema is
+// guaranteed current before any query runs.
+runMigrations();

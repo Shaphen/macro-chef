@@ -13,8 +13,14 @@ export function entriesForDay(day: string): LogEntry[] {
     .all();
 }
 
-export function addEntry(entry: NewLogEntry): LogEntry {
-  return db.insert(logEntries).values(entry).returning().get();
+export function addEntry(
+  entry: Omit<NewLogEntry, 'loggedAt'> & { loggedAt?: number },
+): LogEntry {
+  return db
+    .insert(logEntries)
+    .values({ loggedAt: Date.now(), ...entry })
+    .returning()
+    .get();
 }
 
 export function deleteEntry(id: number): void {

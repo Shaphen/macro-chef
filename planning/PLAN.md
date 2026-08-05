@@ -82,6 +82,15 @@ Go). So the loop is: `npx expo start` → scan QR with Expo Go on the iPhone →
 build needed until TestFlight.** This is deliberately cheaper than Chef Kat's dev-client loop; only
 move to a dev build if we later add a native module Expo Go lacks.
 
+**SDK pin (durable, 2026-08-05):** the project is pinned to **Expo SDK 54** because the App Store
+version of Expo Go is stuck supporting SDK 54 — Apple has not approved Expo's newer submissions
+for months (see expo.dev/changelog/expo-go-and-app-store-may-2026). `create-expo-app` scaffolds
+SDK 57+ by default, which Expo Go on a real iPhone rejects as incompatible. Don't bump the `expo`
+major until either Apple approves a newer Expo Go, or we switch to `eas go` / a dev build (natural
+moment: the TestFlight phase, which needs EAS anyway). Downgrade required: ThemeProvider/DarkTheme
+import from `@react-navigation/native` (not re-exported by expo-router v6), no `experiments.reactCompiler`,
+no `predictiveBackGestureEnabled`, eslint-config-expo ~10.
+
 ---
 
 ## 3. Repo layout
@@ -283,10 +292,42 @@ Suggested order is dependency order; each phase leaves the app runnable in Expo 
 - **Expenditure/TDEE estimate** — we already store daily intake + trend weight; energy balance
   regression over trailing 3–4 weeks gives a MacroFactor-style expenditure number without AI.
 - **USDA generic-food search** via 1-function Vercel proxy (`macrochef-api`).
-- **Apple Health** (weight read/write) — needs a dev build (native module) — natural moment to
-  switch off Expo Go.
+- **Health integrations** — see Part 2 item 2.
 - **Cloud backup/sync** (Vercel + Postgres or iCloud), **Android release**, **widgets/watch**,
   micronutrient targets, training/rest-day macro cycling.
+
+## Part 2 — Post-skeleton action items (added 2026-08-05)
+
+Requested by Shaphen after confirming the skeleton works on-device. Not yet implemented.
+
+### 2.1 Log day navigation: week strip + calendar picker
+MacroFactor-style navigation for the Log tab (today it's only ‹ / › arrows):
+- **Week strip** at the top of the Log screen: a horizontal row of 7 day chips (weekday letter +
+  day number), swipeable between weeks, selected day highlighted; tapping a chip switches the log
+  to that day. Nice-to-have: a small dot/fill on chips indicating logged days (any entries) or
+  calorie adherence vs target.
+- **Calendar icon** in the Log header opening a full month calendar to jump to any date (past
+  weeks aren't reachable quickly with a strip alone).
+- Implementation notes: selected-day state already exists in `(tabs)/log.tsx` (`day` string) —
+  both controls just set it. Keep Expo Go compat: build the week strip as a custom component
+  (FlatList paging by week), and for the month view use a pure-JS calendar
+  (`react-native-calendars` is JS-only) or a custom grid; **no native date-picker modules**.
+  "Logged day" dots need a cheap query: `SELECT DISTINCT day FROM log_entries WHERE day BETWEEN ?`.
+
+### 2.2 Health integrations (Apple Health first; Health Connect for Android later)
+Pull weight data instead of/alongside manual weigh-ins, connected from Settings:
+- **Settings toggle** "Connect Apple Health": on connect, request HealthKit read (body mass;
+  optionally write our weigh-ins back — decide at implementation), backfill historical weights,
+  then sync new samples on app foreground. Imported entries land in `weight_entries` deduped by
+  day (one weigh-in/day rule; latest sample of the day wins). Add a `source` column
+  (`'manual' | 'healthkit' | 'healthconnect'`) via a new migration so manual entries are never
+  silently overwritten by sync.
+- **Android**: same design against Health Connect when the Android release happens (§11).
+- **Constraint (the reason this isn't in v1):** HealthKit requires a native module
+  (e.g. `@kingstinct/react-native-healthkit` — there is no built-in Expo-SDK HealthKit module),
+  which **breaks the Expo Go dev loop** (PLAN §2) and forces an EAS dev build. Natural moment:
+  bundle it with the TestFlight/EAS phase (Phase 5) rather than doing a special build early.
+  Trend-weight math needs no changes — it already consumes whatever is in `weight_entries`.
 
 ## 12. Handoff notes (if a different session implements)
 - Read this doc top-to-bottom; §4–§7 are the contract. Keep every dependency Expo Go-compatible

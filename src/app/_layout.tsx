@@ -1,18 +1,20 @@
-import { DarkTheme, DefaultTheme, ThemeProvider } from 'expo-router';
-import * as SplashScreen from 'expo-splash-screen';
+import '@/db/client'; // side-effect: opens SQLite + runs migrations before anything renders
+
+import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
+import { Stack } from 'expo-router';
 import { useColorScheme } from 'react-native';
 
-import { AnimatedSplashOverlay } from '@/components/animated-icon';
-import AppTabs from '@/components/app-tabs';
-
-SplashScreen.preventAutoHideAsync();
-
-export default function TabLayout() {
+export default function RootLayout() {
   const colorScheme = useColorScheme();
   return (
     <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-      <AnimatedSplashOverlay />
-      <AppTabs />
+      <Stack>
+        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+        <Stack.Screen name="add-food" options={{ presentation: 'modal', title: 'Add food' }} />
+        <Stack.Screen name="scan" options={{ presentation: 'modal', title: 'Scan barcode' }} />
+        <Stack.Screen name="weight" options={{ presentation: 'modal', title: 'Weigh in' }} />
+        <Stack.Screen name="food/[id]" options={{ title: 'Food' }} />
+      </Stack>
     </ThemeProvider>
   );
 }
