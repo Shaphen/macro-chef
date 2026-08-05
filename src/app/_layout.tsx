@@ -10,10 +10,13 @@ export default function RootLayout() {
     <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
       <Stack>
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+        <Stack.Screen name="onboarding" options={{ headerShown: false }} />
         <Stack.Screen name="add-food" options={{ presentation: 'modal', title: 'Add food' }} />
         <Stack.Screen name="scan" options={{ presentation: 'modal', title: 'Scan barcode' }} />
         <Stack.Screen name="weight" options={{ presentation: 'modal', title: 'Weigh in' }} />
         <Stack.Screen name="food/[id]" options={{ title: 'Food' }} />
+        <Stack.Screen name="recipe/[id]" options={{ title: 'Recipe' }} />
+        <Stack.Screen name="log-entry/[id]" options={{ title: 'Edit entry' }} />
       </Stack>
     </ThemeProvider>
   );
