@@ -71,6 +71,9 @@ export function buildBackup(): BackupFile {
 export async function exportBackup(): Promise<void> {
   const stamp = new Date().toISOString().slice(0, 10);
   const file = new File(Paths.cache, `macrochef-backup-${stamp}.json`);
+  // SDK 54 File API: create-before-write; overwrite handles a same-day
+  // re-export replacing the earlier file instead of throwing.
+  file.create({ overwrite: true, intermediates: true });
   file.write(JSON.stringify(buildBackup()));
   if (!(await Sharing.isAvailableAsync())) {
     throw new Error('Sharing is not available on this device.');
