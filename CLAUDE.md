@@ -33,6 +33,9 @@ requires a real device, not the simulator.
   (`(tabs)/index`), Log, Foods, Settings. Modals declared in the root stack: `add-food`,
   `scan`, `weight`; `food/[id]` doubles as food creator (`id=new`), editor, and — with
   `?log=1&day=&meal=` — the serving-picker/logging screen that every add path funnels into.
+  `recipe/[id]` mirrors that exactly for recipes (builder + `?log=1` servings picker);
+  `log-entry/[id]` edits a logged entry (proportional snapshot rescale — it never re-reads
+  current food values); `onboarding` is gated by `settings.onboarded` in `(tabs)/_layout`.
 - **DB**: `src/db/client.ts` opens SQLite and runs hand-rolled append-only SQL migrations
   (tracked via `PRAGMA user_version`) as a module side-effect, so importing any query file
   guarantees the schema. Drizzle schema in `src/db/schema.ts`; all reads/writes go through
@@ -51,3 +54,11 @@ requires a real device, not the simulator.
 - **Screen data reads** use `useDbData` (`src/hooks/use-db-data.ts`), which re-queries on
   screen focus — that's how tabs pick up writes made in modals. New screens reading the DB
   should use it rather than one-shot `useState` initializers.
+- **USDA proxy (optional)**: `macrochef-api/` is a separate one-function Vercel project
+  (see its README to deploy); the app reads the URL from `settings.usda_proxy_url` via
+  `src/api/usda.ts`, and ANY failure must degrade silently to local + OFF search.
+- **Health sync (Part 2.2)**: `src/lib/health.ts` is the only file allowed to touch a native
+  health module (stubbed until the EAS dev build). `weight_entries.source` +
+  `importWeight()` enforce "manual weigh-ins are never overwritten by sync".
+- **Backups**: `src/lib/backup.ts` — JSON dump with raw snake_case rows + schema version;
+  import is replace-all in one transaction and refuses newer-schema files.
