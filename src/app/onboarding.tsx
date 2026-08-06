@@ -9,8 +9,9 @@ import { lbToKg } from '@/lib/units';
 import { useSettings } from '@/state/settings';
 
 /**
- * First-launch onboarding (PLAN §8): exactly 3 steps — units → targets →
- * done — as one route with internal steps rather than three routes. The
+ * First-launch onboarding (PLAN §8): units → targets, as one route with two
+ * internal steps rather than separate routes (§8's third "done" screen is
+ * folded into Finish — a confirmation step with nothing to confirm). The
  * research note in PLAN §1 calls out MacroFactor's "dense onboarding" as a
  * criticism to avoid, so every field here is optional and the whole thing
  * is skippable; Settings edits the same values later.

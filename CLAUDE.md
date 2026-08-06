@@ -20,6 +20,7 @@ npx expo start            # dev server — open in Expo Go on the iPhone (same W
 npx expo start --clear    # after dependency/metro config changes
 npx tsc --noEmit          # typecheck
 npm run lint              # expo lint
+npm test                  # jest-expo unit tests (pure logic: nutrition/trend/dates/units/OFF mapping)
 ```
 
 No EAS dev build is needed: every dependency is Expo Go-compatible, and keeping it that

@@ -270,7 +270,8 @@ startup (`PRAGMA user_version`-style tracking). Never edit an applied migration 
   schema + migration runner, seed settings row, tab shell with placeholder screens, CLAUDE.md.
 - **Phase 1 — Log core.** ✅ Food CRUD + serving math, add-flow search (local), quick add, log
   screen with day paging + totals, MacroBars. Entry editing (`log-entry/[id]`, proportional
-  snapshot rescale) + long-press duplicate shipped 2026-08-05.
+  snapshot rescale), swipe-to-delete with undo snackbar, and long-press duplicate to any
+  day/meal (meal sheet → month-calendar day picker) shipped 2026-08-05.
 - **Phase 2 — Barcode.** ✅ Scan screen, OFF client + normalization + mapping, save-scanned-food
   fast path.
 - **Phase 3 — Weight + dashboard.** ✅ Weight entry/history, trend algorithm, the 3 dashboard cards
@@ -292,6 +293,9 @@ Suggested order is dependency order; each phase leaves the app runnable in Expo 
 ## 10. Testing
 - Pure logic (`lib/nutrition`, `lib/trend`, `lib/units`, OFF mapping) → **jest-expo** unit tests
   with fixture OFF payloads. This is where correctness lives; screens stay thin.
+  ✅ Shipped 2026-08-05: `npm test` (jest-expo preset) covers trend/EWMA + downsampling,
+  serving math + the §5 mismatch hint, day/week/month-grid helpers, unit conversions, and
+  §7 barcode normalization + OFF mapping via mocked-fetch fixtures (`src/**/__tests__/`).
 - DB queries → tested against an in-memory SQLite via drizzle.
 - Manual device pass per phase in Expo Go (camera needs a real device; simulator has no camera).
 

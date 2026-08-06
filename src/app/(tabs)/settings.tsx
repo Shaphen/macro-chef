@@ -36,6 +36,18 @@ export default function SettingsScreen() {
 
   const health = healthAvailability();
 
+  // The target-weight field displays in the selected unit, so switching the
+  // unit must convert the typed value — otherwise "175" entered as lb would
+  // be saved as 175 kg after a toggle.
+  const switchUnit = (u: 'lb' | 'kg') => {
+    if (u === unitWeight) return;
+    const tw = parseFloat(targetWeight);
+    if (isFinite(tw)) {
+      setTargetWeight((u === 'lb' ? kgToLb(tw) : lbToKg(tw)).toFixed(1));
+    }
+    setUnitWeight(u);
+  };
+
   const save = () => {
     const tw = parseFloat(targetWeight);
     update({
@@ -127,7 +139,7 @@ export default function SettingsScreen() {
         {(['lb', 'kg'] as const).map((u) => (
           <Pressable
             key={u}
-            onPress={() => setUnitWeight(u)}
+            onPress={() => switchUnit(u)}
             style={[
               styles.segment,
               {

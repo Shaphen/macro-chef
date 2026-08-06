@@ -59,6 +59,17 @@ export function deleteEntry(id: number): void {
 }
 
 /**
+ * Re-insert a just-deleted entry verbatim — the undo half of the Log
+ * screen's swipe-to-delete (PLAN §8 "undo snackbar"). The snapshot travels
+ * with the row, so undo restores exactly what was deleted; only the id is
+ * newly assigned.
+ */
+export function restoreEntry(entry: LogEntry): LogEntry {
+  const { id: _id, ...rest } = entry;
+  return db.insert(logEntries).values(rest).returning().get();
+}
+
+/**
  * Which days in [fromDay, toDay] have at least one entry — powers the
  * "logged day" dots on the Log week strip and month calendar (PLAN Part 2.1).
  * DISTINCT over the indexed `day` column keeps it cheap even with years of
