@@ -1,0 +1,7 @@
+{
+  "name": "macrochef-api",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Single-function Vercel proxy to USDA FoodData Central for MacroChef (PLAN \u00a711). Keeps the FDC API key server-side.",
+  "type": "module"
+}

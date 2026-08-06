@@ -1,7 +1,7 @@
 # MacroChef — Implementation Plan (v1)
 
 > **Living doc.** One plan doc for the whole v1; enhancements append versioned "Part" sections
-> rather than new files. Last updated 2026-08-04.
+> rather than new files. Last updated 2026-08-05.
 
 A MacroFactor-style calorie/macro + weight-trend tracker for iOS (Android later).
 Personal-use first, but built cleanly enough to ship to the App Store free/cheap.
@@ -266,41 +266,58 @@ startup (`PRAGMA user_version`-style tracking). Never edit an applied migration 
 
 ## 9. Implementation phases
 
-- **Phase 0 — Scaffold (skeleton).** create-expo-app (TS, Expo Router), deps, repo layout, Drizzle
+- **Phase 0 — Scaffold (skeleton).** ✅ create-expo-app (TS, Expo Router), deps, repo layout, Drizzle
   schema + migration runner, seed settings row, tab shell with placeholder screens, CLAUDE.md.
-- **Phase 1 — Log core.** Food CRUD + serving math, add-flow search (local), quick add, log
-  screen with day paging + totals, MacroBars.
-- **Phase 2 — Barcode.** Scan screen, OFF client + normalization + mapping, save-scanned-food
-  fast path. *(Skeleton includes the scan screen + OFF client if budget allows.)*
-- **Phase 3 — Weight + dashboard.** Weight entry/history, trend algorithm, the 3 dashboard cards,
-  timeframe selector.
-- **Phase 4 — Recipes.** Builder, snapshot logging, library.
-- **Phase 5 — Polish + ship.** Onboarding, export/import, empty states, haptics, app icon/splash,
-  EAS build → TestFlight → App Store review (free listing; privacy label "Data Not Collected";
-  note App Review wants camera-permission purpose string: "Scan food barcodes to log nutrition").
-- **Phase 6+ (future, see §11).**
+- **Phase 1 — Log core.** ✅ Food CRUD + serving math, add-flow search (local), quick add, log
+  screen with day paging + totals, MacroBars. Entry editing (`log-entry/[id]`, proportional
+  snapshot rescale), swipe-to-delete with undo snackbar, and long-press duplicate to any
+  day/meal (meal sheet → month-calendar day picker) shipped 2026-08-05.
+- **Phase 2 — Barcode.** ✅ Scan screen, OFF client + normalization + mapping, save-scanned-food
+  fast path.
+- **Phase 3 — Weight + dashboard.** ✅ Weight entry/history, trend algorithm, the 3 dashboard cards
+  (gifted-charts: trend line + raw dots + goal rule; calorie bars + target rule + 7-day rolling
+  average), shared 1W–All timeframe selector, >180-point downsampling. Shipped 2026-08-05.
+- **Phase 4 — Recipes.** ✅ Builder (`recipe/[id]`, doubles as serving-picker with `?log=1`),
+  snapshot logging, library section on the Foods tab + Recipes in the add flow. Shipped 2026-08-05.
+- **Phase 5 — Polish + ship.** Onboarding ✅ (2-step, skippable) and export/import ✅ (JSON share
+  sheet / document picker, replace-all restore) shipped 2026-08-05, plus OFF attribution in
+  Settings. Remaining: app icon/splash, haptics pass, EAS build → TestFlight → App Store review
+  (free listing; privacy label "Data Not Collected"; note App Review wants camera-permission
+  purpose string: "Scan food barcodes to log nutrition").
+- **Phase 6+ (future, see §11).** The USDA proxy from §11 shipped early (2026-08-05): the
+  `macrochef-api/` folder holds the deployable Vercel project; Settings takes the deployed URL
+  (`settings.usda_proxy_url`), and the add flow falls back to local + OFF when it's absent/down.
 
 Suggested order is dependency order; each phase leaves the app runnable in Expo Go.
 
 ## 10. Testing
 - Pure logic (`lib/nutrition`, `lib/trend`, `lib/units`, OFF mapping) → **jest-expo** unit tests
   with fixture OFF payloads. This is where correctness lives; screens stay thin.
+  ✅ Shipped 2026-08-05: `npm test` (jest-expo preset) covers trend/EWMA + downsampling,
+  serving math + the §5 mismatch hint, day/week/month-grid helpers, unit conversions, and
+  §7 barcode normalization + OFF mapping via mocked-fetch fixtures (`src/**/__tests__/`).
 - DB queries → tested against an in-memory SQLite via drizzle.
 - Manual device pass per phase in Expo Go (camera needs a real device; simulator has no camera).
 
 ## 11. Future parts (not v1)
 - **Expenditure/TDEE estimate** — we already store daily intake + trend weight; energy balance
   regression over trailing 3–4 weeks gives a MacroFactor-style expenditure number without AI.
-- **USDA generic-food search** via 1-function Vercel proxy (`macrochef-api`).
+- **USDA generic-food search** via 1-function Vercel proxy (`macrochef-api`). ✅ Shipped
+  2026-08-05: deployable project lives in `macrochef-api/` (see its README for the one-time
+  Vercel setup — free FDC key + `FDC_API_KEY` env var); app client in `src/api/usda.ts`; URL
+  configured in Settings; any proxy failure silently falls back to local + OFF.
 - **Health integrations** — see Part 2 item 2.
 - **Cloud backup/sync** (Vercel + Postgres or iCloud), **Android release**, **widgets/watch**,
   micronutrient targets, training/rest-day macro cycling.
 
 ## Part 2 — Post-skeleton action items (added 2026-08-05)
 
-Requested by Shaphen after confirming the skeleton works on-device. Not yet implemented.
+Requested by Shaphen after confirming the skeleton works on-device.
+**Status (2026-08-05):** 2.1 shipped in full; 2.2 shipped everything short of the native module
+(schema migration, dedupe rules, sync helper, Settings section) — the HealthKit binding itself
+waits for the EAS dev build per the constraint below. Details inline.
 
-### 2.1 Log day navigation: week strip + calendar picker
+### 2.1 Log day navigation: week strip + calendar picker ✅
 MacroFactor-style navigation for the Log tab (today it's only ‹ / › arrows):
 - **Week strip** at the top of the Log screen: a horizontal row of 7 day chips (weekday letter +
   day number), swipeable between weeks, selected day highlighted; tapping a chip switches the log
@@ -314,7 +331,11 @@ MacroFactor-style navigation for the Log tab (today it's only ‹ / › arrows):
   (`react-native-calendars` is JS-only) or a custom grid; **no native date-picker modules**.
   "Logged day" dots need a cheap query: `SELECT DISTINCT day FROM log_entries WHERE day BETWEEN ?`.
 
-### 2.2 Health integrations (Apple Health first; Health Connect for Android later)
+Implemented as `components/week-strip.tsx` (paging FlatList, ±2y window) +
+`components/month-calendar.tsx` (hand-rolled pure-JS month grid, no new dependency), both
+controlled by the existing `day` state in `(tabs)/log.tsx`; dots via `loggedDaysBetween()`.
+
+### 2.2 Health integrations (Apple Health first; Health Connect for Android later) — groundwork ✅
 Pull weight data instead of/alongside manual weigh-ins, connected from Settings:
 - **Settings toggle** "Connect Apple Health": on connect, request HealthKit read (body mass;
   optionally write our weigh-ins back — decide at implementation), backfill historical weights,
@@ -328,6 +349,13 @@ Pull weight data instead of/alongside manual weigh-ins, connected from Settings:
   which **breaks the Expo Go dev loop** (PLAN §2) and forces an EAS dev build. Natural moment:
   bundle it with the TestFlight/EAS phase (Phase 5) rather than doing a special build early.
   Trend-weight math needs no changes — it already consumes whatever is in `weight_entries`.
+- **Groundwork shipped (2026-08-05):** migration v2 added `weight_entries.source`
+  (`'manual'|'healthkit'|'healthconnect'`, default manual); `db/queries/weight.ts#importWeight`
+  enforces manual-never-overwritten + latest-sample-wins; `lib/health.ts` is the single adapter
+  file whose stubs get swapped for real HealthKit calls at the dev-build moment (it also hosts
+  the pure `applyWeightSamples()` dedupe logic, testable today); Settings shows the section with
+  the availability explanation. Enabling for real = install the native module + rewrite only
+  `lib/health.ts`.
 
 ## 12. Handoff notes (if a different session implements)
 - Read this doc top-to-bottom; §4–§7 are the contract. Keep every dependency Expo Go-compatible
