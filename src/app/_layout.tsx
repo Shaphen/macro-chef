@@ -20,6 +20,7 @@ export default function RootLayout() {
         <Stack.Screen name="food/[id]" options={{ title: 'Food' }} />
         <Stack.Screen name="recipe/[id]" options={{ title: 'Recipe' }} />
         <Stack.Screen name="log-entry/[id]" options={{ title: 'Edit entry' }} />
+        <Stack.Screen name="health" options={{ title: 'Activity' }} />
       </Stack>
       </ThemeProvider>
     </GestureHandlerRootView>

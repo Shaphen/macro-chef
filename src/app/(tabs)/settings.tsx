@@ -1,17 +1,18 @@
+import { Link } from 'expo-router';
 import { useState } from 'react';
 import { Alert, Linking, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
 import { Spacing } from '@/constants/theme';
+import { useHealthSync } from '@/hooks/use-health-sync';
 import { useTheme } from '@/hooks/use-theme';
 import { exportBackup, pickAndRestoreBackup } from '@/lib/backup';
-import { healthAvailability } from '@/lib/health';
 import { kgToLb, lbToKg } from '@/lib/units';
 import { useSettings } from '@/state/settings';
 
 /**
- * Settings (PLAN §8): goals editor, units, USDA proxy config (§11), Apple
- * Health status (Part 2.2), export/import (§8), and the OFF attribution the
+ * Settings (PLAN §8): goals editor, units, USDA proxy config (§11), the Apple
+ * Health connection (Part 3), export/import (§8), and the OFF attribution the
  * ODbL license requires (§8 "about/licenses").
  */
 export default function SettingsScreen() {
@@ -34,7 +35,18 @@ export default function SettingsScreen() {
   const [usdaUrl, setUsdaUrl] = useState(settings.usdaProxyUrl ?? '');
   const [busy, setBusy] = useState(false);
 
-  const health = healthAvailability();
+  const health = useHealthSync();
+
+  const confirmDisconnectHealth = () => {
+    Alert.alert(
+      'Disconnect Apple Health',
+      'MacroChef stops syncing and forgets the cached steps, energy, sleep and workouts. Weigh-ins already imported into your weight history are kept.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Disconnect', style: 'destructive', onPress: health.disconnect },
+      ],
+    );
+  };
 
   // The target-weight field displays in the selected unit, so switching the
   // unit must convert the typed value — otherwise "175" entered as lb would
@@ -189,12 +201,42 @@ export default function SettingsScreen() {
         APPLE HEALTH
       </ThemedText>
       <View style={[styles.card, { backgroundColor: theme.backgroundElement }]}>
-        <ThemedText type="small">{health.reason}</ThemedText>
-        {health.available && (
-          // Wiring exists (lib/health.ts + weight source column); the button
-          // only appears once a dev build makes HealthKit loadable.
-          <ThemedText type="small" themeColor="textSecondary">
-            Connect from here once available.
+        <ThemedText type="small">{health.availability.reason}</ThemedText>
+        {health.availability.available &&
+          (health.enabled ? (
+            <>
+              <ThemedText type="small" themeColor="textSecondary">
+                {health.syncing
+                  ? 'Syncing…'
+                  : health.lastSyncAt
+                    ? `Last synced ${new Date(health.lastSyncAt).toLocaleString()}`
+                    : 'Not synced yet'}
+              </ThemedText>
+              <Link href="/health" asChild>
+                <Pressable>
+                  <ThemedText type="smallBold" style={{ color: '#3c87f7' }}>
+                    Open Activity →
+                  </ThemedText>
+                </Pressable>
+              </Link>
+              <Pressable onPress={confirmDisconnectHealth}>
+                <ThemedText type="smallBold" style={{ color: '#e4573d' }}>
+                  Disconnect Apple Health
+                </ThemedText>
+              </Pressable>
+            </>
+          ) : (
+            <Pressable
+              style={[styles.saveButton, { opacity: health.syncing ? 0.5 : 1 }]}
+              disabled={health.syncing}
+              onPress={() => health.connect()}
+            >
+              <ThemedText style={styles.saveText}>Connect Apple Health</ThemedText>
+            </Pressable>
+          ))}
+        {health.error && (
+          <ThemedText type="small" style={{ color: '#e4573d' }}>
+            {health.error}
           </ThemedText>
         )}
       </View>

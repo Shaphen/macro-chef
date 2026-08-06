@@ -32,6 +32,11 @@ const TABLES = [
   'log_entries',
   'weight_entries',
   'settings',
+  // Health rows are a re-syncable cache, but including them keeps a restored
+  // device's charts populated before the first sync runs (and costs little —
+  // one row per day).
+  'health_days',
+  'health_workouts',
 ] as const;
 
 const FORMAT_MARKER = 'macrochef-backup';

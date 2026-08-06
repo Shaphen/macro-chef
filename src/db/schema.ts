@@ -109,6 +109,47 @@ export const settings = sqliteTable('settings', {
   // generic-food search"). Null/empty = feature off; the add-food flow then
   // only offers local + Open Food Facts search.
   usdaProxyUrl: text('usda_proxy_url'),
+  // Apple Health sync (PLAN Part 3). 1 only after the user granted HealthKit
+  // read access at least once; the app never queries HealthKit otherwise
+  // (querying an un-requested type crashes the app, per the library docs).
+  healthSyncEnabled: integer('health_sync_enabled').notNull().default(0),
+  // Epoch ms of the last completed sync — the incremental window's start
+  // (minus an overlap, see lib/health.ts) and the "Last synced" label.
+  healthLastSyncAt: integer('health_last_sync_at'),
+});
+
+/**
+ * One row per local day of Apple Health activity (PLAN Part 3). Every column
+ * is nullable because "no data for that metric that day" is a real, distinct
+ * state from zero — a day with no watch worn has null exercise minutes, not
+ * 0. Rows are written wholesale per sync so a metric deleted in Health
+ * clears here too, rather than lingering as a stale value.
+ */
+export const healthDays = sqliteTable('health_days', {
+  day: text('day').primaryKey(),
+  steps: integer('steps'),
+  activeEnergyKcal: real('active_energy_kcal'),
+  basalEnergyKcal: real('basal_energy_kcal'),
+  exerciseMinutes: real('exercise_minutes'),
+  /** Asleep minutes (in-bed/awake excluded), attributed to the wake day. */
+  sleepMinutes: real('sleep_minutes'),
+  syncedAt: integer('synced_at').notNull(),
+});
+
+/**
+ * Individual workouts, keyed by HealthKit's own sample UUID so re-syncing an
+ * overlapping window is idempotent.
+ */
+export const healthWorkouts = sqliteTable('health_workouts', {
+  uuid: text('uuid').primaryKey(),
+  day: text('day').notNull(),
+  /** Humanized activity name ('Running'); see WORKOUT_LABELS in lib/health.ts. */
+  activity: text('activity').notNull(),
+  startMs: integer('start_ms').notNull(),
+  endMs: integer('end_ms').notNull(),
+  durationSec: real('duration_sec').notNull(),
+  energyKcal: real('energy_kcal'),
+  distanceM: real('distance_m'),
 });
 
 export type Food = typeof foods.$inferSelect;
@@ -121,4 +162,7 @@ export type RecipeItem = typeof recipeItems.$inferSelect;
 export type NewRecipeItem = typeof recipeItems.$inferInsert;
 export type WeightEntry = typeof weightEntries.$inferSelect;
 export type Settings = typeof settings.$inferSelect;
+export type HealthDay = typeof healthDays.$inferSelect;
+export type NewHealthDay = typeof healthDays.$inferInsert;
+export type HealthWorkout = typeof healthWorkouts.$inferSelect;
 export type Meal = LogEntry['meal'];

@@ -25,6 +25,32 @@ In the output, you'll find options to open the app in a
 
 You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
 
+## Apple Health / dev build
+
+Everything except Apple Health runs in **Expo Go** (`npx expo start`). HealthKit is a native
+module Expo Go can't load, so the Activity screen reports "needs the development build" there —
+the rest of the app is unaffected.
+
+To use Apple Health, build and install the dev client once (needs an Apple Developer account;
+run it again only when native config changes, not for JS changes):
+
+```bash
+eas build --profile development --platform ios   # ~15-20 min, then install on the iPhone
+npx expo start --dev-client                      # daily loop from then on
+```
+
+`eas-cli` is installed globally (`npm install -g eas-cli` if it ever goes missing) — **`npx eas`
+does not work**, the npm package is named `eas-cli` while its binary is `eas`, so npx fails with
+"could not determine executable to run".
+
+On first launch open **Activity** (Dashboard → ACTIVITY card, or Settings → Apple Health) and tap
+**Connect Apple Health**, then allow the categories in the permission sheet. MacroChef requests
+**read-only** access to weight, steps, active + resting energy, exercise minutes, sleep and
+workouts; it never writes to Health.
+
+If a sync reports that Health returned nothing, the reads were denied — iOS hides read denials
+from apps. Fix in **Health app → Sharing → Apps → MacroChef**.
+
 ## Get a fresh project
 
 When you're ready, run:

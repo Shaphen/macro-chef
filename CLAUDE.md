@@ -23,10 +23,18 @@ npm run lint              # expo lint
 npm test                  # jest-expo unit tests (pure logic: nutrition/trend/dates/units/OFF mapping)
 ```
 
-No EAS dev build is needed: every dependency is Expo Go-compatible, and keeping it that
-way is a deliberate constraint (PLAN §2) — don't add native modules outside the Expo SDK
-without flagging that it forces the EAS-build workflow. The camera (barcode scanning)
-requires a real device, not the simulator.
+```bash
+eas build --profile development --platform ios   # only for Apple Health work (see below)
+# eas-cli is global; `npx eas` fails — the package is eas-cli, the binary is eas
+```
+
+The dev loop is **two-track** since Apple Health landed (PLAN Part 3). Everything except
+HealthKit still runs in Expo Go, and keeping it that way is a deliberate constraint (PLAN §2) —
+`@kingstinct/react-native-healthkit` is the *only* sanctioned native module outside the Expo SDK,
+and it is loaded lazily so the Expo Go bundle keeps working. Don't add another native module
+without flagging that it forces the EAS-build workflow, and after touching health code verify
+Expo Go still bundles (`npx expo export --platform ios`). The camera (barcode scanning) requires
+a real device, not the simulator.
 
 ## Architecture
 
@@ -58,8 +66,14 @@ requires a real device, not the simulator.
 - **USDA proxy (optional)**: `macrochef-api/` is a separate one-function Vercel project
   (see its README to deploy); the app reads the URL from `settings.usda_proxy_url` via
   `src/api/usda.ts`, and ANY failure must degrade silently to local + OFF search.
-- **Health sync (Part 2.2)**: `src/lib/health.ts` is the only file allowed to touch a native
-  health module (stubbed until the EAS dev build). `weight_entries.source` +
-  `importWeight()` enforce "manual weigh-ins are never overwritten by sync".
+- **Apple Health (Part 3, read-only)**: `src/lib/health.ts` is the only file allowed to touch
+  the native health module, and it must keep `require`-ing it **lazily** behind the Expo Go
+  check — a top-level import would break the Expo Go bundle for the whole app. Weight lands via
+  `importWeight()` (`weight_entries.source` enforces "manual weigh-ins are never overwritten by
+  sync"); steps/energy/exercise/sleep/workouts land in `health_days` + `health_workouts`, which
+  are a **re-syncable cache, not history** — the snapshot rule does not apply and rows are
+  overwritten wholesale. Steps/energy must use HealthKit's statistics-collection query (it
+  de-duplicates iPhone vs Watch); sleep must be interval-merged and attributed to the wake day.
+  Sync state/actions come from `useHealthSync` (`src/hooks/use-health-sync.ts`).
 - **Backups**: `src/lib/backup.ts` — JSON dump with raw snake_case rows + schema version;
   import is replace-all in one transaction and refuses newer-schema files.

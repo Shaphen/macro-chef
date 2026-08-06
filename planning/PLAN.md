@@ -349,6 +349,8 @@ Pull weight data instead of/alongside manual weigh-ins, connected from Settings:
   which **breaks the Expo Go dev loop** (PLAN §2) and forces an EAS dev build. Natural moment:
   bundle it with the TestFlight/EAS phase (Phase 5) rather than doing a special build early.
   Trend-weight math needs no changes — it already consumes whatever is in `weight_entries`.
+- **Superseded 2026-08-05 by Part 3 below** — Shaphen asked for the real integration (and for
+  more than weight), so the native module landed now instead of at Phase 5.
 - **Groundwork shipped (2026-08-05):** migration v2 added `weight_entries.source`
   (`'manual'|'healthkit'|'healthconnect'`, default manual); `db/queries/weight.ts#importWeight`
   enforces manual-never-overwritten + latest-sample-wins; `lib/health.ts` is the single adapter
@@ -356,6 +358,85 @@ Pull weight data instead of/alongside manual weigh-ins, connected from Settings:
   the pure `applyWeightSamples()` dedupe logic, testable today); Settings shows the section with
   the availability explanation. Enabling for real = install the native module + rewrite only
   `lib/health.ts`.
+
+## Part 3 — Apple Health sync, for real (added 2026-08-05)
+
+Requested by Shaphen: "sync my apple health data into the app directly" — **read-only**, covering
+body weight, active energy, steps, workouts and sleep, all displayed in-app ("the most data that
+can be displayed… opens up opportunities to use the data for something in the future").
+
+### The build-loop consequence (read this first)
+HealthKit is a native module, so **Apple Health only works in a dev/TestFlight build — never in
+Expo Go.** Part 2.2 deferred this to Phase 5 for exactly that reason; the decision is now
+reversed deliberately. To keep the cost down the integration is *gated*, not unconditional:
+
+- `lib/health.ts` `require`s the native module **lazily**, behind
+  `Constants.executionEnvironment === StoreClient` (Expo Go) and a `try/catch`. Expo Go therefore
+  still bundles and runs the whole app; Apple Health simply reports "needs the development
+  build" and every other feature is untouched. Verified with `npx expo export --platform ios`.
+- So the dev loop is now **two-track**: `npx expo start` + Expo Go for everything except health;
+  `eas build --profile development --platform ios` (then `npx expo start --dev-client`) when
+  health work needs testing. `eas.json` ships a `development` profile for this.
+
+### What is read (and nothing is written)
+MacroChef never writes to Apple Health — the plugin is configured with
+`NSHealthUpdateUsageDescription: false`, so the app can't even ask for write access, and the only
+entitlement requested is `com.apple.developer.healthkit` (no background delivery).
+
+| HealthKit type | Lands in |
+| --- | --- |
+| `BodyMass` | `weight_entries` via `importWeight` (Part 2.2 dedupe rules unchanged) |
+| `StepCount`, `ActiveEnergyBurned`, `BasalEnergyBurned`, `AppleExerciseTime` | `health_days` |
+| `SleepAnalysis` (category) | `health_days.sleep_minutes` |
+| Workouts | `health_workouts` (one row per sample) |
+
+### Data model (migration v3)
+- `health_days(day PK, steps, active_energy_kcal, basal_energy_kcal, exercise_minutes,
+  sleep_minutes, synced_at)` — **every metric nullable**: "not measured" ≠ zero (no Watch that
+  day means null exercise minutes, and a 0 bar would be a lie).
+- `health_workouts(uuid PK, day, activity, start_ms, end_ms, duration_sec, energy_kcal,
+  distance_m)` — keyed on HealthKit's own sample UUID so re-syncing an overlapping window is
+  idempotent; `pruneHealthWorkouts` drops rows Health no longer reports in a re-synced window.
+- `settings.health_sync_enabled` + `settings.health_last_sync_at`.
+- **These tables are a cache, not history.** The §5 snapshot rule protects the food log because
+  it can't be re-derived; health rows can always be re-synced, so they're overwritten wholesale
+  (that's how data deleted in Health stops lingering here). Backups still include them so a
+  restored device isn't blank before its first sync.
+
+### Sync rules (the load-bearing ones)
+- **Window:** first sync backfills 365 days of activity and **all** weight history (the EWMA
+  trend shouldn't start at a one-year cliff); later syncs re-read from `last_sync − 3 days`,
+  because samples arrive late (a watch syncing hours later, a scale back-filling) and sleep is
+  stitched together after the fact.
+- **Steps/energy/exercise use `queryStatisticsCollectionForQuantity`, not raw samples** — iPhone
+  and Watch both count steps, and HealthKit's statistics query is what de-duplicates overlapping
+  sources. Summing raw samples double-counts.
+- **Sleep is merged, then attributed to the wake day.** Multiple sources report the same night
+  with heavy overlap, so asleep intervals (values 1/3/4/5 — in-bed and awake excluded) are
+  interval-merged before summing; a 23:00→07:00 session counts on the morning you woke, matching
+  the Health app.
+- **A denied read is invisible.** Apple never reveals read-permission denials, so
+  `requestAuthorization` resolving `true` means only that the sheet was shown. Each metric's read
+  is individually try/caught (one denied/unavailable type must not fail the sync), and a sync
+  that returns nothing at all surfaces "check Health → Sharing → Apps → MacroChef" rather than
+  claiming success.
+- **Auto-sync** runs on mount + app foreground when the last sync is >15 min old, from the
+  Dashboard and the Activity screen; a module-level in-flight promise stops the two overlapping.
+
+### UI
+- **Activity screen** (`src/app/health.tsx`, pushed from the Dashboard/Settings): connect + sync
+  controls, today's steps/active energy/exercise/sleep, 1W/1M/3M bar charts for steps, active
+  energy and sleep, and the workout list.
+- **Dashboard** gains a compact ACTIVITY card (steps / active / sleep) that links there; it's
+  hidden entirely when HealthKit is unavailable, so Expo Go shows no dead UI.
+- **Settings** APPLE HEALTH section: connect, last-synced, open Activity, disconnect.
+  Disconnecting clears the activity cache but **keeps imported weigh-ins** — they're part of the
+  weight history the trend is built from.
+
+### Future hooks this opens (not built)
+Resting + active energy per day is a real TDEE signal, and steps/sleep are obvious adherence
+covariates — enough to do MacroFactor-style expenditure estimation later without another data
+migration. Deliberately not attempted here.
 
 ## 12. Handoff notes (if a different session implements)
 - Read this doc top-to-bottom; §4–§7 are the contract. Keep every dependency Expo Go-compatible

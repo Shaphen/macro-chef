@@ -1,15 +1,19 @@
 import { Link } from 'expo-router';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, useWindowDimensions, View } from 'react-native';
 import { BarChart, LineChart } from 'react-native-gifted-charts';
 
 import { MacroBars } from '@/components/macro-bars';
 import { ThemedText } from '@/components/themed-text';
 import { Spacing } from '@/constants/theme';
+import { healthDay } from '@/db/queries/health';
 import { dailyCaloriesSince, dayTotals } from '@/db/queries/log';
+import type { HealthDay } from '@/db/schema';
 import { allWeightsAsc } from '@/db/queries/weight';
 import { useDbData } from '@/hooks/use-db-data';
+import { useHealthSync } from '@/hooks/use-health-sync';
 import { useTheme } from '@/hooks/use-theme';
+import { formatDuration, formatKcal, formatSteps } from '@/lib/activity-format';
 import { addDays, todayKey } from '@/lib/dates';
 import {
   computeTrend,
@@ -44,14 +48,26 @@ export default function DashboardScreen() {
   // string-compare queries/filters pass everything through.
   const fromDay = days ? addDays(todayKey(), -(days - 1)) : '0000-00-00';
 
-  const { data } = useDbData(() => {
+  // Apple Health (PLAN Part 3): the Dashboard is the first screen after
+  // launch, so it owns the foreground auto-sync; the Activity screen does the
+  // same and a module-level guard keeps the two from overlapping.
+  const health = useHealthSync({ auto: true });
+
+  const { data, refresh } = useDbData(() => {
     const today = todayKey();
     return {
       totals: dayTotals(today),
       trendAll: computeTrend(allWeightsAsc()),
       calories: dailyCaloriesSince(fromDay),
+      activity: healthDay(today),
     };
   }, [fromDay]);
+
+  // A sync finishing while the Dashboard is open must repaint it (useDbData
+  // only re-queries on focus, and the sync resolves after focus).
+  useEffect(() => {
+    if (health.lastResult) refresh();
+  }, [health.lastResult, refresh]);
 
   // Usable width for chart bodies: window minus screen padding, card
   // padding, and the y-axis label gutter the library reserves.
@@ -77,6 +93,13 @@ export default function DashboardScreen() {
           </Pressable>
         </Link>
       </View>
+
+      {/* Activity (Apple Health, PLAN Part 3) */}
+      <ActivityCard
+        row={data.activity}
+        available={health.availability.available}
+        enabled={health.enabled}
+      />
 
       {/* Shared timeframe selector */}
       <View style={styles.segmentRow}>
@@ -127,6 +150,65 @@ export default function DashboardScreen() {
         />
       </View>
     </ScrollView>
+  );
+}
+
+/**
+ * Today's Apple Health numbers, linking through to the Activity screen.
+ * Hidden entirely when HealthKit can't be used (Expo Go, Android) — an
+ * always-visible "unavailable" card would be noise on every launch.
+ */
+function ActivityCard({
+  row,
+  available,
+  enabled,
+}: {
+  row: HealthDay | undefined;
+  available: boolean;
+  enabled: boolean;
+}) {
+  const theme = useTheme();
+  if (!available) return null;
+
+  return (
+    <Link href="/health" asChild>
+      <Pressable style={[styles.card, { backgroundColor: theme.backgroundElement }]}>
+        <ThemedText type="smallBold" themeColor="textSecondary">
+          ACTIVITY
+        </ThemedText>
+        {!enabled ? (
+          <ThemedText type="smallBold" style={{ color: BLUE }}>
+            Connect Apple Health →
+          </ThemedText>
+        ) : (
+          <View style={styles.activityRow}>
+            <ActivityStat
+              label="Steps"
+              value={row?.steps != null ? formatSteps(row.steps) : '—'}
+            />
+            <ActivityStat
+              label="Active"
+              value={row?.activeEnergyKcal != null ? formatKcal(row.activeEnergyKcal) : '—'}
+            />
+            <ActivityStat
+              label="Sleep"
+              value={row?.sleepMinutes != null ? formatDuration(row.sleepMinutes) : '—'}
+            />
+          </View>
+        )}
+      </Pressable>
+    </Link>
+  );
+}
+
+function ActivityStat({ label, value }: { label: string; value: string }) {
+  return (
+    <View style={styles.activityStat}>
+      <ThemedText type="smallBold">{value}</ThemedText>
+      <ThemedText type="small" themeColor="textSecondary">
+        {label}
+      </ThemedText>
+    </View>
   );
 }
 
@@ -353,4 +435,6 @@ const styles = StyleSheet.create({
   },
   primaryButtonText: { color: '#fff', fontWeight: '700' },
   secondaryButton: { alignItems: 'center', paddingVertical: Spacing.one },
+  activityRow: { flexDirection: 'row', justifyContent: 'space-between' },
+  activityStat: { gap: 2 },
 });

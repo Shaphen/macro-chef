@@ -109,6 +109,37 @@ const MIGRATIONS: string[] = [
   ALTER TABLE weight_entries ADD COLUMN source TEXT NOT NULL DEFAULT 'manual';
   ALTER TABLE settings ADD COLUMN usda_proxy_url TEXT;
   `,
+  // v3 — Apple Health read-only sync (PLAN Part 3). Daily activity totals and
+  // workouts live in their own tables rather than alongside the food log:
+  // they are a cache of someone else's data (re-derivable by re-syncing), so
+  // the snapshot rule that protects log_entries does not apply to them.
+  // Every metric column is nullable — "not measured" ≠ zero.
+  `
+  CREATE TABLE health_days (
+    day TEXT PRIMARY KEY,
+    steps INTEGER,
+    active_energy_kcal REAL,
+    basal_energy_kcal REAL,
+    exercise_minutes REAL,
+    sleep_minutes REAL,
+    synced_at INTEGER NOT NULL
+  );
+
+  CREATE TABLE health_workouts (
+    uuid TEXT PRIMARY KEY,
+    day TEXT NOT NULL,
+    activity TEXT NOT NULL,
+    start_ms INTEGER NOT NULL,
+    end_ms INTEGER NOT NULL,
+    duration_sec REAL NOT NULL,
+    energy_kcal REAL,
+    distance_m REAL
+  );
+  CREATE INDEX idx_health_workouts_day ON health_workouts(day);
+
+  ALTER TABLE settings ADD COLUMN health_sync_enabled INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE settings ADD COLUMN health_last_sync_at INTEGER;
+  `,
 ];
 
 export const sqlite = openDatabaseSync('macrochef.db');

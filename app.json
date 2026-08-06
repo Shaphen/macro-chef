@@ -10,7 +10,10 @@
     "ios": {
       "icon": "./assets/expo.icon",
       "bundleIdentifier": "com.swpburn.macrochef",
-      "supportsTablet": false
+      "supportsTablet": false,
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -18,7 +21,11 @@
         "foregroundImage": "./assets/images/android-icon-foreground.png",
         "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
-      }
+      },
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO"
+      ]
     },
     "web": {
       "output": "static",
@@ -40,10 +47,24 @@
           "cameraPermission": "MacroChef uses the camera to scan food barcodes so you can log nutrition quickly."
         }
       ],
-      "expo-sqlite"
+      "expo-sqlite",
+      [
+        "@kingstinct/react-native-healthkit",
+        {
+          "NSHealthShareUsageDescription": "MacroChef reads your weight, steps, energy burned, workouts and sleep from Apple Health so your trend and activity are up to date without typing them in.",
+          "NSHealthUpdateUsageDescription": false,
+          "background": false
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "69db3083-2951-46bc-918c-31cd9385f1bb"
+      }
     }
   }
 }
