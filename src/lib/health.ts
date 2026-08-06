@@ -134,12 +134,14 @@ export interface HealthWeightSample {
 
 /**
  * Bucket weight samples by local day, keep the latest per day, and hand each
- * winner to `importWeight` (which refuses to overwrite a manual weigh-in).
+ * winner to `importWeight`. `force` (used by the backfill) lets Health's
+ * history replace hand-typed entries for the days it covers.
  * Returns the number of days actually written.
  */
 export function applyWeightSamples(
   samples: HealthWeightSample[],
   source: 'healthkit' | 'healthconnect',
+  force = false,
 ): number {
   const latestPerDay = new Map<string, HealthWeightSample>();
   for (const s of samples) {
@@ -148,7 +150,7 @@ export function applyWeightSamples(
   }
   let imported = 0;
   for (const s of latestPerDay.values()) {
-    if (importWeight(s.day, s.weightKg, source)) imported++;
+    if (importWeight(s.day, s.weightKg, source, force)) imported++;
   }
   return imported;
 }
@@ -184,9 +186,33 @@ export interface SleepSample {
 }
 
 /**
- * Asleep minutes per local day. A session is attributed to the day it ENDS,
- * matching how the Health app reports "last night" — a 23:00→07:00 sleep
- * shows up on the morning you wake, not the evening you went to bed.
+ * Hour at which a sleep day rolls over. Health groups sleep into a day that
+ * runs 18:00 → 18:00, so everything from tonight's bedtime through tomorrow
+ * afternoon counts as tomorrow's sleep.
+ */
+const SLEEP_DAY_CUTOFF_HOUR = 18;
+
+/**
+ * The day an asleep interval belongs to.
+ *
+ * This is NOT "the day it ends", which is the obvious-looking rule and is
+ * wrong: a watch reports a night as dozens of stage fragments separated by
+ * brief awake gaps, so an end-of-interval rule files everything before
+ * midnight under the previous day and reports a short night (the bug that
+ * showed 5h15m for a 6h46m night). Bucketing on the 18:00 boundary keeps a
+ * whole night — pre- and post-midnight fragments alike — on the wake day,
+ * and still puts an afternoon nap on the day it happened.
+ */
+export function sleepDayKey(startMs: number): string {
+  const start = new Date(startMs);
+  const day = dayKey(start);
+  return start.getHours() >= SLEEP_DAY_CUTOFF_HOUR ? addDays(day, 1) : day;
+}
+
+/**
+ * Asleep minutes per local day. Overlapping intervals are merged first —
+ * several sources (watch, phone, third-party trackers) report the same night
+ * — then each interval is credited to its sleep day.
  */
 export function sleepMinutesByDay(samples: SleepSample[]): Map<string, number> {
   const asleep = samples
@@ -194,7 +220,7 @@ export function sleepMinutesByDay(samples: SleepSample[]): Map<string, number> {
     .map((s) => ({ start: s.startMs, end: s.endMs }));
   const byDay = new Map<string, number>();
   for (const interval of mergeIntervals(asleep)) {
-    const day = dayKey(new Date(interval.end));
+    const day = sleepDayKey(interval.start);
     const minutes = (interval.end - interval.start) / 60000;
     byDay.set(day, (byDay.get(day) ?? 0) + minutes);
   }
@@ -523,6 +549,8 @@ export async function syncHealth(lastSyncAt: number | null): Promise<HealthSyncR
         sampledAt: s.startDate.getTime(),
       })),
       'healthkit',
+      // Backfill = "import my real history"; it may replace hand-typed rows.
+      isBackfill,
     );
   } catch {
     // denied or unavailable — weight stays manual-only

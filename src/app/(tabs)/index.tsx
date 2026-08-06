@@ -1,4 +1,4 @@
-import { Link } from 'expo-router';
+import { Link, useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, useWindowDimensions, View } from 'react-native';
 import { BarChart, LineChart } from 'react-native-gifted-charts';
@@ -14,7 +14,7 @@ import { useDbData } from '@/hooks/use-db-data';
 import { useHealthSync } from '@/hooks/use-health-sync';
 import { useTheme } from '@/hooks/use-theme';
 import { formatDuration, formatKcal, formatSteps } from '@/lib/activity-format';
-import { addDays, todayKey } from '@/lib/dates';
+import { addDays, dayLabel, todayKey } from '@/lib/dates';
 import {
   computeTrend,
   downsample,
@@ -237,6 +237,12 @@ function WeightSummary({
   return (
     <View>
       <ThemedText type="subtitle">{formatWeight(latest.trendKg, unit)}</ThemedText>
+      {/* The headline is the smoothed trend, which lags real weigh-ins by
+          design (EWMA) — spelling out the latest actual number stops that
+          gap from reading as wrong data. */}
+      <ThemedText type="small">
+        Last weigh-in {formatWeight(latest.weightKg, unit)} · {dayLabel(latest.day)}
+      </ThemedText>
       <ThemedText type="small" themeColor="textSecondary">
         trend
         {deltaDisplay !== null
@@ -272,7 +278,13 @@ function WeightChart({ points, width }: { points: TrendPoint[]; width: number })
   const toDisplay = (kg: number) => (unit === 'lb' ? kgToLb(kg) : kg);
   const sampled = downsample(points);
 
-  const trendData = sampled.map((p) => ({ value: toDisplay(p.trendKg) }));
+  // `day`/`raw` ride along on the data items so the long-press tooltip can
+  // report the actual weigh-in behind a point, not just the smoothed value.
+  const trendData = sampled.map((p) => ({
+    value: toDisplay(p.trendKg),
+    day: p.day,
+    raw: toDisplay(p.weightKg),
+  }));
   const rawData = sampled.map((p) => ({ value: toDisplay(p.weightKg) }));
   const goal = settings.targetWeightKg ? toDisplay(settings.targetWeightKg) : null;
 
@@ -310,6 +322,23 @@ function WeightChart({ points, width }: { points: TrendPoint[]; width: number })
       yAxisTextStyle={{ color: theme.textSecondary, fontSize: 11 }}
       hideRules
       disableScroll
+      // Long-press then drag to scrub the series; the tooltip reports the
+      // weigh-in logged that day alongside the trend value.
+      pointerConfig={{
+        activatePointersOnLongPress: true,
+        activatePointersDelay: 150,
+        pointerStripHeight: 160,
+        pointerStripWidth: 1,
+        pointerStripColor: theme.textSecondary,
+        pointerColor: BLUE,
+        radius: 5,
+        pointerLabelWidth: 150,
+        pointerLabelHeight: 74,
+        autoAdjustPointerLabelPosition: true,
+        pointerLabelComponent: (items: unknown[]) => (
+          <WeightTooltip item={items?.[0] as WeightPoint | undefined} unit={unit} />
+        ),
+      }}
       {...(goal
         ? {
             showReferenceLine1: true,
@@ -324,6 +353,29 @@ function WeightChart({ points, width }: { points: TrendPoint[]; width: number })
           }
         : {})}
     />
+  );
+}
+
+interface WeightPoint {
+  value: number;
+  day: string;
+  raw: number;
+}
+
+/** Long-press tooltip for the weight chart: the day, its weigh-in, its trend. */
+function WeightTooltip({ item, unit }: { item: WeightPoint | undefined; unit: 'lb' | 'kg' }) {
+  const theme = useTheme();
+  if (!item) return null;
+  return (
+    <View style={[styles.tooltip, { backgroundColor: theme.backgroundSelected }]}>
+      <ThemedText type="smallBold">{dayLabel(item.day)}</ThemedText>
+      <ThemedText type="small">
+        Logged {item.raw.toFixed(1)} {unit}
+      </ThemedText>
+      <ThemedText type="small" themeColor="textSecondary">
+        Trend {item.value.toFixed(1)} {unit}
+      </ThemedText>
+    </View>
   );
 }
 
@@ -348,6 +400,8 @@ function CaloriesChart({
   trackColor: string;
 }) {
   const theme = useTheme();
+  const router = useRouter();
+  const [selected, setSelected] = useState<number | null>(null);
   if (logged.length === 0) {
     return (
       <ThemedText type="small" themeColor="textSecondary">
@@ -360,8 +414,10 @@ function CaloriesChart({
   const byDay = new Map(logged.map((l) => [l.day, l.calories]));
   const today = todayKey();
   const series: number[] = [];
+  const seriesDays: string[] = [];
   for (let d = fromDay; d <= today; d = addDays(d, 1)) {
     series.push(Math.round(byDay.get(d) ?? 0));
+    seriesDays.push(d);
   }
   const avg = rollingAverage(series);
   const sampledIdx = downsample(
@@ -373,13 +429,45 @@ function CaloriesChart({
     value: series[i],
     frontColor: target && series[i] > target ? RED : BLUE,
   }));
+  const selectedDay = selected === null ? null : seriesDays[sampledIdx[selected]];
+  const selectedValue = selected === null ? null : series[sampledIdx[selected]];
   const lineData = sampledIdx.map((i) => ({ value: Math.round(avg[i]) }));
   const maxValue = Math.max(target ?? 0, ...series, 100);
   const barSpacing = Math.max(1, Math.floor(width / Math.max(1, barData.length)) - 4);
 
   return (
-    <BarChart
+    <>
+      {/* Tapping a bar pins the day; the pin doubles as a link into that
+          day's log, which is the drill-down people actually want from a
+          "why was that day high?" glance. */}
+      {selectedDay !== null && (
+        <Pressable
+          style={[styles.barDetail, { backgroundColor: theme.backgroundSelected }]}
+          onPress={() =>
+            router.push({ pathname: '/(tabs)/log', params: { day: selectedDay } })
+          }
+        >
+          <View style={styles.barDetailText}>
+            <ThemedText type="smallBold">
+              {dayLabel(selectedDay)} · {selectedValue?.toLocaleString()} kcal
+            </ThemedText>
+            {target ? (
+              <ThemedText type="small" themeColor="textSecondary">
+                {(selectedValue ?? 0) - target >= 0 ? '+' : ''}
+                {((selectedValue ?? 0) - target).toLocaleString()} vs target
+              </ThemedText>
+            ) : null}
+          </View>
+          <ThemedText type="smallBold" style={{ color: BLUE }}>
+            Open log →
+          </ThemedText>
+        </Pressable>
+      )}
+      <BarChart
       data={barData}
+      onPress={(_item: unknown, index: number) =>
+        setSelected((prev) => (prev === index ? null : index))
+      }
       width={width}
       height={160}
       adjustToWidth
@@ -418,7 +506,8 @@ function CaloriesChart({
             },
           }
         : {})}
-    />
+      />
+    </>
   );
 }
 
@@ -437,4 +526,13 @@ const styles = StyleSheet.create({
   secondaryButton: { alignItems: 'center', paddingVertical: Spacing.one },
   activityRow: { flexDirection: 'row', justifyContent: 'space-between' },
   activityStat: { gap: 2 },
+  tooltip: { borderRadius: 10, padding: Spacing.two, gap: 2 },
+  barDetail: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderRadius: 10,
+    padding: Spacing.two,
+  },
+  barDetailText: { gap: 2 },
 });

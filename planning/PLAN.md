@@ -411,10 +411,24 @@ entitlement requested is `com.apple.developer.healthkit` (no background delivery
 - **Steps/energy/exercise use `queryStatisticsCollectionForQuantity`, not raw samples** — iPhone
   and Watch both count steps, and HealthKit's statistics query is what de-duplicates overlapping
   sources. Summing raw samples double-counts.
-- **Sleep is merged, then attributed to the wake day.** Multiple sources report the same night
+- **Sleep is merged, then bucketed on an 18:00 boundary.** Multiple sources report the same night
   with heavy overlap, so asleep intervals (values 1/3/4/5 — in-bed and awake excluded) are
-  interval-merged before summing; a 23:00→07:00 session counts on the morning you woke, matching
-  the Health app.
+  interval-merged before summing. The day an interval belongs to comes from `sleepDayKey`: a
+  sleep day runs 18:00 → 18:00, like Health's own grouping.
+  **Do not "simplify" this to the day the interval ends** — that was the first implementation and
+  it under-reported every night (5h15m shown for a 6h46m night, fixed 2026-08-06). A watch splits
+  a night into dozens of stage samples separated by brief awake gaps, and merging only joins
+  *overlapping* intervals, so an end-day rule files every pre-midnight fragment under the previous
+  day. Regression test: "keeps a fragmented night on ONE day".
+- **The backfill may overwrite hand-typed weigh-ins; routine syncs may not.** Part 2.2's
+  "manual always wins" rule protects a number you just typed, but applied to the initial import
+  it strands stale test entries in place and the weight chart then disagrees with the Health app
+  (reported 2026-08-06). So `importWeight(..., force)` is set on backfill only, and only days
+  Health actually has a sample for are touched. The weigh-in list labels imported rows "Apple
+  Health" so the origin of any row is visible.
+- **The Dashboard headline weight is the EWMA trend, not the last weigh-in**, and lags it by
+  design; the card now prints the latest actual weigh-in underneath so the gap doesn't read as
+  a sync bug.
 - **A denied read is invisible.** Apple never reveals read-permission denials, so
   `requestAuthorization` resolving `true` means only that the sheet was shown. Each metric's read
   is individually try/caught (one denied/unavailable type must not fail the sync), and a sync
@@ -432,6 +446,15 @@ entitlement requested is `com.apple.developer.healthkit` (no background delivery
 - **Settings** APPLE HEALTH section: connect, last-synced, open Activity, disconnect.
   Disconnecting clears the activity cache but **keeps imported weigh-ins** — they're part of the
   weight history the trend is built from.
+
+### Chart interaction (added 2026-08-06)
+- **Weight (Dashboard):** long-press the line and drag to scrub; the tooltip shows the day, the
+  weigh-in logged then, and the trend value (gifted-charts `pointerConfig`,
+  `activatePointersOnLongPress`). Day/raw ride along on the data items to make this possible.
+- **Calories (Dashboard):** tap a bar to pin the day (value + delta vs target); the pin is a
+  button into that day's Log — `(tabs)/log` now accepts a `day` search param for the deep link.
+- **Activity charts:** tap a bar to swap the card's headline from the period average to that
+  exact day; unselected bars dim. Tapping the same bar again clears.
 
 ### Future hooks this opens (not built)
 Resting + active energy per day is a real TDEE signal, and steps/sleep are obvious adherence

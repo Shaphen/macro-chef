@@ -93,6 +93,36 @@ describe('sleepMinutesByDay', () => {
     expect(byDay.get('2026-08-05')).toBeCloseTo(480);
   });
 
+  it('keeps a fragmented night on ONE day (the 5h15m-vs-6h46m regression)', () => {
+    // A watch reports stages as separate samples split by brief awake gaps.
+    // Bucketing on each fragment's END day used to file the pre-midnight
+    // fragments under the previous day, under-reporting the night.
+    const byDay = sleepMinutesByDay([
+      { value: 3, startMs: at(2026, 8, 5, 22, 30), endMs: at(2026, 8, 5, 23, 45) }, // 75m
+      { value: 2, startMs: at(2026, 8, 5, 23, 45), endMs: at(2026, 8, 5, 23, 50) }, // awake
+      { value: 4, startMs: at(2026, 8, 5, 23, 50), endMs: at(2026, 8, 6, 0, 46) }, // 56m
+      { value: 5, startMs: at(2026, 8, 6, 0, 46), endMs: at(2026, 8, 6, 3, 0) }, // 134m
+      { value: 3, startMs: at(2026, 8, 6, 3, 0), endMs: at(2026, 8, 6, 6, 21) }, // 201m
+    ]);
+    expect(byDay.has('2026-08-05')).toBe(false);
+    expect(byDay.get('2026-08-06')).toBeCloseTo(466); // 7h46m − 1h awake… = 466m
+    expect(byDay.size).toBe(1);
+  });
+
+  it('still files an afternoon nap on the day it happened', () => {
+    const byDay = sleepMinutesByDay([
+      { value: 1, startMs: at(2026, 8, 6, 14), endMs: at(2026, 8, 6, 15) },
+    ]);
+    expect(byDay.get('2026-08-06')).toBeCloseTo(60);
+  });
+
+  it('files sleep starting after the 18:00 cutoff on the next day', () => {
+    const byDay = sleepMinutesByDay([
+      { value: 1, startMs: at(2026, 8, 5, 19), endMs: at(2026, 8, 5, 21) },
+    ]);
+    expect(byDay.get('2026-08-06')).toBeCloseTo(120);
+  });
+
   it('adds a daytime nap to the same day', () => {
     const byDay = sleepMinutesByDay([
       { value: 1, startMs: at(2026, 8, 4, 23), endMs: at(2026, 8, 5, 6) },
@@ -216,7 +246,7 @@ describe('applyWeightSamples', () => {
     );
     expect(imported).toBe(2);
     expect(mockImportWeight).toHaveBeenCalledTimes(2);
-    expect(mockImportWeight).toHaveBeenCalledWith('2026-08-05', 81.2, 'healthkit');
+    expect(mockImportWeight).toHaveBeenCalledWith('2026-08-05', 81.2, 'healthkit', false);
   });
 
   it('does not count days the DB refused (manual weigh-ins win)', () => {
@@ -226,5 +256,14 @@ describe('applyWeightSamples', () => {
       'healthkit',
     );
     expect(imported).toBe(0);
+  });
+
+  it('passes force through so a backfill can replace hand-typed entries', () => {
+    applyWeightSamples(
+      [{ day: '2026-08-05', weightKg: 81.2, sampledAt: at(2026, 8, 5, 7) }],
+      'healthkit',
+      true,
+    );
+    expect(mockImportWeight).toHaveBeenCalledWith('2026-08-05', 81.2, 'healthkit', true);
   });
 });

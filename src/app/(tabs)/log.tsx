@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import ReanimatedSwipeable from 'react-native-gesture-handler/ReanimatedSwipeable';
@@ -35,8 +35,16 @@ const UNDO_MS = 5000;
 export default function LogScreen() {
   const theme = useTheme();
   const router = useRouter();
-  const [day, setDay] = useState(todayKey());
+  // A `day` param lets other screens deep-link into a specific date (the
+  // Dashboard's calorie bars drill in this way); without one the tab opens
+  // on today as always.
+  const { day: dayParam } = useLocalSearchParams<{ day?: string }>();
+  const [day, setDay] = useState(dayParam ?? todayKey());
   const [calendarOpen, setCalendarOpen] = useState(false);
+
+  useEffect(() => {
+    if (dayParam) setDay(dayParam);
+  }, [dayParam]);
 
   // Duplicate flow (PLAN §8 "duplicate to today/another meal"): long-press →
   // meal via action sheet → day via the same MonthCalendar used for date

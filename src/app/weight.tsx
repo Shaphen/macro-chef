@@ -80,7 +80,16 @@ export default function WeightScreen() {
               ])
             }
           >
-            <ThemedText type="small">{dayLabel(item.day)}</ThemedText>
+            <View style={styles.rowLeft}>
+              <ThemedText type="small">{dayLabel(item.day)}</ThemedText>
+              {/* Showing the origin makes a chart that disagrees with the
+                  Health app self-explanatory rather than a mystery. */}
+              {item.source !== 'manual' && (
+                <ThemedText type="small" themeColor="textSecondary">
+                  Apple Health
+                </ThemedText>
+              )}
+            </View>
             <ThemedText type="smallBold">{formatWeight(item.weightKg, unit)}</ThemedText>
           </Pressable>
         )}
@@ -113,7 +122,9 @@ const styles = StyleSheet.create({
   row: {
     flexDirection: 'row',
     justifyContent: 'space-between',
+    alignItems: 'center',
     borderRadius: 12,
     padding: Spacing.three,
   },
+  rowLeft: { gap: 2 },
 });

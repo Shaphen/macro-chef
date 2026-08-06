@@ -228,6 +228,7 @@ export default function HealthScreen() {
         color={BLUE}
         width={chartWidth}
         summary={(vals) => `${formatSteps(average(vals))} / day average`}
+        detail={(v) => `${formatSteps(v)} steps`}
       />
       <HistoryCard
         title="ACTIVE ENERGY"
@@ -238,6 +239,7 @@ export default function HealthScreen() {
         color={ORANGE}
         width={chartWidth}
         summary={(vals) => `${formatKcal(average(vals))} / day average`}
+        detail={(v) => formatKcal(v)}
       />
       <HistoryCard
         title="SLEEP"
@@ -249,6 +251,7 @@ export default function HealthScreen() {
         color={PURPLE}
         width={chartWidth}
         summary={(vals) => `${formatDuration(average(vals) * 60)} / night average`}
+        detail={(v) => formatDuration(v * 60)}
       />
 
       {/* Workouts */}
@@ -300,6 +303,7 @@ function HistoryCard({
   color,
   width,
   summary,
+  detail,
 }: {
   title: string;
   rows: HealthDay[];
@@ -308,21 +312,30 @@ function HistoryCard({
   pick: (day: HealthDay) => number | null;
   color: string;
   width: number;
+  /** Headline when nothing is selected. */
   summary: (values: number[]) => string;
+  /** Headline for the tapped bar. */
+  detail: (value: number) => string;
 }) {
   const theme = useTheme();
+  const [selected, setSelected] = useState<number | null>(null);
   const byDay = new Map(rows.map((r) => [r.day, r]));
 
   const series: number[] = [];
+  const seriesDays: string[] = [];
   const present: number[] = [];
   for (let d = fromDay; d <= toDay; d = addDays(d, 1)) {
     const row = byDay.get(d);
     const value = row ? pick(row) : null;
     series.push(value ?? 0);
+    seriesDays.push(d);
     if (value != null) present.push(value);
   }
 
   const barWidth = Math.max(3, Math.floor(width / Math.max(1, series.length)) - 4);
+  // Guard the index: switching the range shortens the series while a bar
+  // from the longer one is still selected.
+  const sel = selected !== null && selected < series.length ? selected : null;
 
   return (
     <View style={[styles.card, { backgroundColor: theme.backgroundElement }]}>
@@ -335,9 +348,20 @@ function HistoryCard({
         </ThemedText>
       ) : (
         <>
-          <ThemedText type="small">{summary(present)}</ThemedText>
+          {/* Tap a bar to read that exact day; tapping it again clears. */}
+          <ThemedText type="small">
+            {sel !== null
+              ? `${dayLabel(seriesDays[sel])} · ${detail(series[sel])}`
+              : summary(present)}
+          </ThemedText>
           <BarChart
-            data={series.map((value) => ({ value, frontColor: color }))}
+            data={series.map((value, i) => ({
+              value,
+              frontColor: sel !== null && i !== sel ? `${color}66` : color,
+            }))}
+            onPress={(_item: unknown, index: number) =>
+              setSelected((prev) => (prev === index ? null : index))
+            }
             width={width}
             height={140}
             adjustToWidth

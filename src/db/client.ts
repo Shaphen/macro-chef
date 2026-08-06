@@ -140,6 +140,14 @@ const MIGRATIONS: string[] = [
   ALTER TABLE settings ADD COLUMN health_sync_enabled INTEGER NOT NULL DEFAULT 0;
   ALTER TABLE settings ADD COLUMN health_last_sync_at INTEGER;
   `,
+  // v4 — the first sleep-attribution rule split a night at midnight and
+  // under-reported it (see lib/health.ts#sleepDayKey). Clearing the sync
+  // timestamp makes the next sync a full backfill, which rewrites every
+  // cached day with the corrected numbers. Harmless for anyone who never
+  // connected Health: the column is already null.
+  `
+  UPDATE settings SET health_last_sync_at = NULL;
+  `,
 ];
 
 export const sqlite = openDatabaseSync('macrochef.db');

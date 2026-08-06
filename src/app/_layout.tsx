@@ -11,7 +11,10 @@ export default function RootLayout() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-      <Stack>
+      {/* iOS defaults the back label to the previous ROUTE name, which for
+          anything pushed from a tab reads "(tabs)". A plain "Back" is set
+          once here so every pushed screen inherits it. */}
+      <Stack screenOptions={{ headerBackTitle: 'Back' }}>
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen name="onboarding" options={{ headerShown: false }} />
         <Stack.Screen name="add-food" options={{ presentation: 'modal', title: 'Add food' }} />
