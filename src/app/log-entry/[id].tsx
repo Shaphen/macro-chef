@@ -2,22 +2,26 @@ import { useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 
+import { MacroSummary } from '@/components/macro-summary';
+import { MealPicker } from '@/components/meal-picker';
 import { ThemedText } from '@/components/themed-text';
 import { Spacing } from '@/constants/theme';
+import { getFood } from '@/db/queries/foods';
 import { deleteEntry, getEntry, updateEntry } from '@/db/queries/log';
 import type { Meal } from '@/db/schema';
 import { useTheme } from '@/hooks/use-theme';
 import { dayLabel } from '@/lib/dates';
-import { round1 } from '@/lib/units';
+import type { Amount } from '@/lib/nutrition';
+import { G_PER_OZ, round1 } from '@/lib/units';
 
-const MEALS: Meal[] = ['breakfast', 'lunch', 'dinner', 'snack'];
+const UNITS: Amount['unit'][] = ['serving', 'g', 'oz'];
 
 /**
  * Edit a logged entry (PLAN §3 route list / §8 "row tap → edit entry").
  *
  * Snapshot-preserving edit model (the important design decision): when the
  * user changes the AMOUNT, new totals are the entry's own stored snapshot
- * scaled proportionally (snapshot × newAmount / oldAmount) — we deliberately
+ * scaled proportionally (snapshot × newGrams / oldGrams) — we deliberately
  * do NOT re-read the current `foods`/`recipes` rows. §5's rule is that
  * history never changes because a food was edited later; an amount edit is
  * a correction of *this historical entry* ("I actually ate 150 g, not
@@ -25,12 +29,17 @@ const MEALS: Meal[] = ['breakfast', 'lunch', 'dinner', 'snack'];
  * time. Re-pricing at current values is what re-logging (delete + add) is
  * for, and that path already exists.
  *
- * Consequences kept deliberately simple for v1:
- *  - The amount UNIT is fixed; proportional scaling is only meaningful
- *    within the unit the entry was logged in. Switching 100 g → 2 servings
- *    is a re-log, not an edit.
+ * Changing the UNIT (g ↔ oz ↔ serving) is allowed and stays snapshot-safe:
+ * the only thing read off the current food row is its serving SIZE in grams
+ * — metadata used to translate the amount, never a macro value. The entry is
+ * still priced entirely from its own snapshot. It needs resolvable grams on
+ * both sides, so:
+ *  - g ↔ oz always works;
+ *  - 'serving' needs the food to define a gram serving size;
+ *  - entries logged before grams were stored fall back to same-unit editing.
  *  - Quick entries (no amount) expose their four macro fields directly —
  *    they ARE their snapshot, so editing the numbers is editing the entry.
+ *  - Recipe entries are counted in servings only, so their unit is fixed.
  *  - Meal and name changes never touch the macro snapshot at all.
  */
 export default function LogEntryScreen() {
@@ -40,10 +49,20 @@ export default function LogEntryScreen() {
   const params = useLocalSearchParams<{ id: string }>();
 
   const entry = useMemo(() => getEntry(Number(params.id)), [params.id]);
+  // Serving-size metadata for unit conversion only (never macro values).
+  const food = useMemo(
+    () => (entry?.foodId != null ? getFood(entry.foodId) : undefined),
+    [entry?.foodId],
+  );
 
   const [name, setName] = useState(entry?.name ?? '');
   const [meal, setMeal] = useState<Meal>(entry?.meal ?? 'snack');
   const [amountValue, setAmountValue] = useState(entry?.amount != null ? String(entry.amount) : '');
+  const [unit, setUnit] = useState<Amount['unit']>(
+    (UNITS as string[]).includes(entry?.amountUnit ?? '')
+      ? (entry!.amountUnit as Amount['unit'])
+      : 'g',
+  );
   // Quick-entry macro fields (only rendered when kind === 'quick').
   const [calories, setCalories] = useState(entry ? String(entry.calories) : '');
   const [protein, setProtein] = useState(entry ? String(entry.protein) : '');
@@ -53,6 +72,15 @@ export default function LogEntryScreen() {
   useEffect(() => {
     navigation.setOptions({ title: 'Edit entry' });
   }, [navigation]);
+
+  /** Grams one unit represents for this entry's food, or null if unknown. */
+  const gramsPerUnit = (u: Amount['unit']): number | null => {
+    if (u === 'g') return 1;
+    if (u === 'oz') return G_PER_OZ;
+    return food?.servingQty && (food.servingUnit === 'g' || food.servingUnit === 'ml')
+      ? food.servingQty
+      : null;
+  };
 
   if (!entry) {
     return (
@@ -67,10 +95,36 @@ export default function LogEntryScreen() {
   const isQuick = entry.kind === 'quick';
   const hasAmount = !isQuick && entry.amount != null && entry.amount > 0;
 
-  // Proportional rescale factor for amount edits (1 when untouched/invalid).
+  const originalUnit = (UNITS as string[]).includes(entry.amountUnit ?? '')
+    ? (entry.amountUnit as Amount['unit'])
+    : null;
+  const originalGrams =
+    entry.grams ??
+    (originalUnit && entry.amount != null
+      ? (gramsPerUnit(originalUnit) ?? 0) * entry.amount || null
+      : null);
+  // Unit switching needs a gram anchor on the original side and a food row
+  // to translate servings; recipes are servings-only by construction.
+  const convertible = hasAmount && entry.kind === 'food' && !!originalGrams && originalGrams > 0;
+  const availableUnits = convertible
+    ? UNITS.filter((u) => gramsPerUnit(u) != null)
+    : originalUnit
+      ? [originalUnit]
+      : [];
+  const activeUnit = availableUnits.includes(unit) ? unit : originalUnit ?? unit;
+
+  // Proportional rescale factor for amount/unit edits (1 when untouched).
   const parsedAmount = parseFloat(amountValue);
-  const factor =
-    hasAmount && isFinite(parsedAmount) && parsedAmount > 0 ? parsedAmount / entry.amount! : 1;
+  const amountOk = isFinite(parsedAmount) && parsedAmount > 0;
+  const gpu = gramsPerUnit(activeUnit);
+  const newGrams = convertible && gpu != null && amountOk ? parsedAmount * gpu : null;
+  const factor = !hasAmount
+    ? 1
+    : !amountOk
+      ? 1
+      : newGrams != null && originalGrams
+        ? newGrams / originalGrams
+        : parsedAmount / entry.amount!;
 
   const preview = isQuick
     ? {
@@ -88,14 +142,36 @@ export default function LogEntryScreen() {
 
   const valid =
     name.trim().length > 0 &&
-    (!hasAmount || (isFinite(parsedAmount) && parsedAmount > 0)) &&
+    (!hasAmount || amountOk) &&
     (!isQuick || (isFinite(parseFloat(calories)) && parseFloat(calories) >= 0));
+
+  /** Switching units keeps the same real quantity (1 serving → 30 g). */
+  const changeUnit = (next: Amount['unit']) => {
+    if (next === activeUnit) return;
+    const from = gramsPerUnit(activeUnit);
+    const to = gramsPerUnit(next);
+    if (amountOk && from != null && to != null) {
+      setAmountValue(String(round1((parsedAmount * from) / to)));
+    }
+    setUnit(next);
+  };
 
   const save = () => {
     updateEntry(entry.id, {
       name: name.trim(),
       meal,
-      ...(hasAmount ? { amount: round1(parsedAmount), grams: entry.grams != null ? round1(entry.grams * factor) : null } : {}),
+      ...(hasAmount
+        ? {
+            amount: round1(parsedAmount),
+            amountUnit: activeUnit,
+            grams:
+              newGrams != null
+                ? round1(newGrams)
+                : entry.grams != null
+                  ? round1(entry.grams * factor)
+                  : null,
+          }
+        : {}),
       ...preview,
     });
     router.back();
@@ -132,11 +208,18 @@ export default function LogEntryScreen() {
     </View>
   );
 
+  const gramsCaption =
+    newGrams != null && activeUnit !== 'g'
+      ? `${round1(parsedAmount)} ${activeUnit} · ${Math.round(newGrams)} g`
+      : undefined;
+
   return (
     <ScrollView
       style={{ backgroundColor: theme.background }}
       contentContainerStyle={styles.content}
       keyboardShouldPersistTaps="handled"
+      keyboardDismissMode="interactive"
+      automaticallyAdjustKeyboardInsets
     >
       <ThemedText type="small" themeColor="textSecondary">
         {dayLabel(entry.day)} · logged as {entry.kind}
@@ -147,25 +230,49 @@ export default function LogEntryScreen() {
       <ThemedText type="smallBold" themeColor="textSecondary">
         MEAL
       </ThemedText>
-      <View style={styles.segmentRow}>
-        {MEALS.map((m) => (
-          <Pressable
-            key={m}
-            onPress={() => setMeal(m)}
-            style={[
-              styles.segment,
-              {
-                backgroundColor: meal === m ? theme.backgroundSelected : theme.backgroundElement,
-              },
-            ]}
-          >
-            <ThemedText type={meal === m ? 'smallBold' : 'small'}>{m}</ThemedText>
-          </Pressable>
-        ))}
-      </View>
+      <MealPicker value={meal} onChange={setMeal} />
 
-      {hasAmount &&
-        field(`Amount (${entry.amountUnit ?? 'units'})`, amountValue, setAmountValue)}
+      {hasAmount && (
+        <>
+          <ThemedText type="smallBold" themeColor="textSecondary">
+            AMOUNT
+          </ThemedText>
+          <View style={styles.amountRow}>
+            <TextInput
+              style={[styles.amountInput, { backgroundColor: theme.backgroundElement, color: theme.text }]}
+              value={amountValue}
+              onChangeText={setAmountValue}
+              keyboardType="numeric"
+              selectTextOnFocus
+            />
+            <View style={styles.segmentRow}>
+              {availableUnits.map((u) => (
+                <Pressable
+                  key={u}
+                  onPress={() => changeUnit(u)}
+                  style={[
+                    styles.segment,
+                    {
+                      backgroundColor:
+                        activeUnit === u ? theme.backgroundSelected : theme.backgroundElement,
+                    },
+                  ]}
+                >
+                  <ThemedText type={activeUnit === u ? 'smallBold' : 'small'}>{u}</ThemedText>
+                </Pressable>
+              ))}
+            </View>
+          </View>
+          {!convertible && originalUnit && (
+            <ThemedText type="small" themeColor="textSecondary">
+              {entry.kind === 'recipe'
+                ? 'Recipes are logged in servings.'
+                : 'This entry has no gram equivalent stored, so it stays in ' +
+                  `${originalUnit}. Re-log it to change units.`}
+            </ThemedText>
+          )}
+        </>
+      )}
 
       {isQuick && (
         <>
@@ -179,10 +286,7 @@ export default function LogEntryScreen() {
         </>
       )}
 
-      <ThemedText type="small" themeColor="textSecondary">
-        {Math.round(preview.calories)} kcal · P {Math.round(preview.protein)} · C{' '}
-        {Math.round(preview.carbs)} · F {Math.round(preview.fat)}
-      </ThemedText>
+      <MacroSummary totals={preview} caption={gramsCaption} />
 
       <Pressable
         style={[styles.primaryButton, { opacity: valid ? 1 : 0.4 }]}
@@ -212,7 +316,17 @@ const styles = StyleSheet.create({
     fontSize: 16,
     textAlign: 'right',
   },
-  segmentRow: { flexDirection: 'row', gap: Spacing.two },
+  amountRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.two },
+  amountInput: {
+    width: 90,
+    borderRadius: 10,
+    paddingHorizontal: Spacing.two,
+    paddingVertical: 10,
+    fontSize: 20,
+    fontWeight: '700',
+    textAlign: 'right',
+  },
+  segmentRow: { flexDirection: 'row', gap: Spacing.two, flex: 1 },
   segment: { flex: 1, alignItems: 'center', paddingVertical: Spacing.two, borderRadius: 10 },
   primaryButton: {
     backgroundColor: '#3c87f7',

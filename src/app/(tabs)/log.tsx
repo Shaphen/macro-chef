@@ -21,13 +21,7 @@ import type { LogEntry, Meal } from '@/db/schema';
 import { useDbData } from '@/hooks/use-db-data';
 import { useTheme } from '@/hooks/use-theme';
 import { addDays, dayLabel, todayKey } from '@/lib/dates';
-
-const MEALS: { key: Meal; label: string }[] = [
-  { key: 'breakfast', label: 'Breakfast' },
-  { key: 'lunch', label: 'Lunch' },
-  { key: 'dinner', label: 'Dinner' },
-  { key: 'snack', label: 'Snacks' },
-];
+import { MEALS } from '@/lib/meals';
 
 /** How long the undo snackbar lingers before the delete becomes final. */
 const UNDO_MS = 5000;
@@ -178,13 +172,13 @@ export default function LogScreen() {
           <MacroBars totals={data.totals} compact />
         </View>
 
-        {MEALS.map(({ key, label }) => {
+        {MEALS.map(({ key, label, plural }) => {
           const entries = byMeal.get(key) ?? [];
           const kcal = Math.round(entries.reduce((s, e) => s + e.calories, 0));
           return (
             <View key={key} style={[styles.card, { backgroundColor: theme.backgroundElement }]}>
               <View style={styles.mealHeader}>
-                <ThemedText type="smallBold">{label}</ThemedText>
+                <ThemedText type="smallBold">{plural ?? label}</ThemedText>
                 <View style={styles.mealHeaderRight}>
                   {entries.length > 0 && (
                     <ThemedText type="small" themeColor="textSecondary">

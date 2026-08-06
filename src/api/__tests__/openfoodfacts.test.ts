@@ -87,6 +87,28 @@ describe('lookupBarcode mapping (PLAN §7 fixtures)', () => {
     expect(result.food?.barcode).toBe('123456789012');
   });
 
+  it('reports macros OFF had no value for, so the scan flow can leave them blank (§7)', async () => {
+    fetchMock.mockReturnValueOnce(ok(per100Product));
+    expect((await lookupBarcode('0123456789012')).missing).toEqual([]);
+
+    // A tub of protein powder OFF only half-knows: the 0s in `food` are
+    // placeholders for the NOT NULL columns, never measured values.
+    fetchMock.mockReturnValueOnce(
+      ok({
+        status: 1,
+        product: {
+          code: '4012345678901',
+          product_name: 'Whey Isolate',
+          nutrition_data_per: '100g',
+          nutriments: { 'energy-kcal_100g': 380, proteins_100g: 80 },
+        },
+      }),
+    );
+    const partial = await lookupBarcode('4012345678901');
+    expect(partial.missing).toEqual(['carbs', 'fat']);
+    expect(partial.food).toMatchObject({ calories: 380, protein: 80, carbs: 0, fat: 0 });
+  });
+
   it('maps per-serving products with perHundred=0 and _serving fields', async () => {
     fetchMock.mockReturnValueOnce(
       ok({

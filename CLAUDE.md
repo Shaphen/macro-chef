@@ -44,7 +44,15 @@ a real device, not the simulator.
   `?log=1&day=&meal=` — the serving-picker/logging screen that every add path funnels into.
   `recipe/[id]` mirrors that exactly for recipes (builder + `?log=1` servings picker);
   `log-entry/[id]` edits a logged entry (proportional snapshot rescale — it never re-reads
-  current food values); `onboarding` is gated by `settings.onboarded` in `(tabs)/_layout`.
+  current food macro values; it reads the food's serving SIZE only, to convert units);
+  `onboarding` is gated by `settings.onboarded` in `(tabs)/_layout`.
+- **Every logging path is meal-aware**: the meal comes from `src/lib/meals.ts`
+  (`defaultMealForNow()` when the caller didn't say) and stays changeable at the moment of
+  logging via `components/meal-picker.tsx`. Don't hard-default a new logging surface to
+  `'snack'`. Amount + resulting macros are rendered by `components/macro-summary.tsx`.
+- **Forms**: scrollable form screens set `automaticallyAdjustKeyboardInsets` +
+  `keyboardDismissMode="interactive"` on the `ScrollView` so iOS lifts the focused input
+  above the keyboard. Use that rather than adding `KeyboardAvoidingView`.
 - **DB**: `src/db/client.ts` opens SQLite and runs hand-rolled append-only SQL migrations
   (tracked via `PRAGMA user_version`) as a module side-effect, so importing any query file
   guarantees the schema. Drizzle schema in `src/db/schema.ts`; all reads/writes go through
@@ -59,7 +67,12 @@ a real device, not the simulator.
 - **Open Food Facts** (`src/api/openfoodfacts.ts`) is called directly from the device and
   requires the custom User-Agent header. Barcode lookups must go through
   `barcodeCandidates()` — iOS reports UPC-A as 13-digit EAN with a leading zero, so both
-  forms are tried and the confirmed form is stored on the food.
+  forms are tried and the confirmed form is stored on the food. A lookup that is missing
+  macros reports them in `missing`; such a product must NOT be auto-saved (the 0s in the
+  NOT NULL columns are placeholders) — the scan flow hands it to `food/[id]` as a
+  `prefill` param (`src/lib/food-prefill.ts`) with those fields blank. Online search UI is
+  shared by the add flow and the recipe builder in `components/online-food-search.tsx`;
+  network requests only ever fire on an explicit tap.
 - **Screen data reads** use `useDbData` (`src/hooks/use-db-data.ts`), which re-queries on
   screen focus — that's how tabs pick up writes made in modals. New screens reading the DB
   should use it rather than one-shot `useState` initializers.

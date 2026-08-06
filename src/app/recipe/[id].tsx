@@ -3,6 +3,9 @@ import { useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 
+import { MacroSummary } from '@/components/macro-summary';
+import { MealPicker } from '@/components/meal-picker';
+import { OnlineFoodSearch } from '@/components/online-food-search';
 import { ThemedText } from '@/components/themed-text';
 import { Spacing } from '@/constants/theme';
 import { getFood, searchFoods, touchFoodUsage } from '@/db/queries/foods';
@@ -17,7 +20,8 @@ import {
 } from '@/db/queries/recipes';
 import type { Food, Meal } from '@/db/schema';
 import { useTheme } from '@/hooks/use-theme';
-import { todayKey } from '@/lib/dates';
+import { dayLabel, todayKey } from '@/lib/dates';
+import { defaultMealForNow } from '@/lib/meals';
 import { amountToGrams, scaleFood, sumTotals, type Amount } from '@/lib/nutrition';
 import { round1 } from '@/lib/units';
 
@@ -73,8 +77,8 @@ export default function RecipeScreen() {
   const existing = useMemo(() => (recipeId ? getRecipe(recipeId) : undefined), [recipeId]);
   const logging = params.log === '1';
   const day = params.day ?? todayKey();
-  const meal: Meal = params.meal ?? 'snack';
 
+  const [meal, setMeal] = useState<Meal>(params.meal ?? defaultMealForNow());
   const [name, setName] = useState(existing?.name ?? '');
   const [servings, setServings] = useState(existing ? String(existing.servings) : '1');
   const [notes, setNotes] = useState(existing?.notes ?? '');
@@ -207,6 +211,9 @@ export default function RecipeScreen() {
       style={{ backgroundColor: theme.background }}
       contentContainerStyle={styles.content}
       keyboardShouldPersistTaps="handled"
+      keyboardDismissMode="interactive"
+      // iOS: keep the focused input above the keyboard instead of behind it.
+      automaticallyAdjustKeyboardInsets
     >
       <View style={styles.fieldRow}>
         <ThemedText type="small">Name</ThemedText>
@@ -293,13 +300,13 @@ export default function RecipeScreen() {
       })}
       {ingredients.length === 0 && (
         <ThemedText type="small" themeColor="textSecondary">
-          Search below to add ingredients from your foods.
+          Search below to add ingredients — your saved foods first, then Open Food Facts / USDA.
         </ThemedText>
       )}
 
       <TextInput
         style={[styles.search, { backgroundColor: theme.backgroundElement, color: theme.text }]}
-        placeholder="Add ingredient (search my foods)"
+        placeholder="Add ingredient"
         placeholderTextColor={theme.textSecondary}
         value={search}
         onChangeText={setSearch}
@@ -326,41 +333,54 @@ export default function RecipeScreen() {
       ))}
       {search.trim().length > 0 && results.length === 0 && (
         <ThemedText type="small" themeColor="textSecondary">
-          No local matches — create the food from the Foods tab first.
+          No saved foods match — try searching online below.
         </ThemedText>
       )}
 
+      {/* Ingredients can come straight from Open Food Facts / USDA; picking
+          one saves it as a local food first, so the recipe still references
+          a real row (and it's reusable everywhere else afterwards). */}
+      <OnlineFoodSearch query={search} onPick={addIngredient} pickIcon="add-circle-outline" />
+
       <View style={[styles.totalsCard, { backgroundColor: theme.backgroundElement }]}>
         <ThemedText type="smallBold" themeColor="textSecondary">
-          TOTALS
+          PER SERVING
         </ThemedText>
-        <ThemedText type="small">
-          Whole recipe: {Math.round(totals.calories)} kcal · P {Math.round(totals.protein)} · C{' '}
-          {Math.round(totals.carbs)} · F {Math.round(totals.fat)}
-        </ThemedText>
-        <ThemedText type="small">
-          Per serving: {Math.round(perServing.calories)} kcal · P {Math.round(perServing.protein)} ·
-          C {Math.round(perServing.carbs)} · F {Math.round(perServing.fat)}
-        </ThemedText>
+        <MacroSummary
+          totals={perServing}
+          caption={`whole recipe: ${Math.round(totals.calories)} kcal · P ${Math.round(
+            totals.protein,
+          )} · C ${Math.round(totals.carbs)} · F ${Math.round(totals.fat)}`}
+          compact
+        />
       </View>
 
       {logging ? (
         <View style={[styles.totalsCard, { backgroundColor: theme.backgroundElement }]}>
           <ThemedText type="smallBold" themeColor="textSecondary">
-            LOG TO {meal.toUpperCase()} · {day}
+            LOG TO {dayLabel(day).toUpperCase()}
           </ThemedText>
+          <MealPicker value={meal} onChange={setMeal} background={theme.background} />
           <View style={styles.amountRow}>
             <TextInput
               style={[styles.amountInput, { backgroundColor: theme.background, color: theme.text }]}
               value={logServings}
               onChangeText={setLogServings}
               keyboardType="numeric"
+              selectTextOnFocus
             />
             <ThemedText type="small" themeColor="textSecondary">
-              servings ·{' '}
-              {Math.round(perServing.calories * (parseFloat(logServings) || 1))} kcal
+              serving{(parseFloat(logServings) || 1) === 1 ? '' : 's'}
             </ThemedText>
           </View>
+          <MacroSummary
+            totals={{
+              calories: perServing.calories * (parseFloat(logServings) || 1),
+              protein: perServing.protein * (parseFloat(logServings) || 1),
+              carbs: perServing.carbs * (parseFloat(logServings) || 1),
+              fat: perServing.fat * (parseFloat(logServings) || 1),
+            }}
+          />
           <Pressable
             style={[styles.primaryButton, { opacity: valid ? 1 : 0.4 }]}
             disabled={!valid}

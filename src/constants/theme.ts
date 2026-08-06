@@ -24,6 +24,17 @@ export const Colors = {
 
 export type ThemeColor = keyof typeof Colors.light & keyof typeof Colors.dark;
 
+/**
+ * One colour per macro, shared by every place macros are drawn (progress
+ * bars, the log/serving macro summary) so protein is always the same red.
+ */
+export const MacroColors = {
+  calories: '#3c87f7',
+  protein: '#e4573d',
+  carbs: '#3c87f7',
+  fat: '#f2a33c',
+} as const;
+
 export const Fonts = Platform.select({
   ios: {
     /** iOS `UIFontDescriptorSystemDesignDefault` */

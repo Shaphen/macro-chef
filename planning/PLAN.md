@@ -461,6 +461,75 @@ Resting + active energy per day is a real TDEE signal, and steps/sleep are obvio
 covariates — enough to do MacroFactor-style expenditure estimation later without another data
 migration. Deliberately not attempted here.
 
+## Part 4 — Logging ergonomics pass (added 2026-08-06)
+
+Reported by Shaphen after living with the app: the chart tooltip fought the page scroll, every
+add path silently assumed "snack", the scanner dead-ended on products Open Food Facts doesn't
+know, and the serving screen led with per-100 g numbers while hiding the macros it computed.
+
+### 4.1 Chart scrub no longer fights the page ✅
+Long-pressing the Dashboard weight chart locks the enclosing `ScrollView` (`scrollEnabled={false}`)
+for the duration of the scrub, and the tooltip **persists after release** (`persistPointer`) so you
+can move your hand out of the way and still read the day.
+**The load-bearing detail:** gifted-charts activates its pointer after `activatePointersDelay` of
+holding but exposes no callback at that instant — `pointerConfig.onResponderMove` only fires once
+the delay has already elapsed *and* the finger has moved, by which point iOS has begun scrolling.
+So `WeightChart` mirrors the library's rule with its own timer on `pointerConfig.onTouchStart`
+(cleared on `onTouchEnd`/`onResponderEnd`, and on unmount so a torn-down touch can't leave the page
+frozen). Locking on touch *start* instead would make a plain flick across the chart un-scrollable.
+
+### 4.2 Every logging path is meal-aware ✅
+`src/lib/meals.ts` owns the meal list, labels and `defaultMealForNow()` (breakfast <11:00, lunch
+<16:00, dinner <21:00, else snack). `components/meal-picker.tsx` renders the chooser and now sits
+on the add-food flow, the food serving picker, the recipe serving picker and the entry editor — so
+the meal is visible *and changeable at the moment of logging*, not just inherited from wherever the
+flow started. The Dashboard's "+ Add food" and the scan modal previously hard-defaulted to `snack`;
+they now start from the clock.
+
+### 4.3 A scan never dead-ends ✅
+`lookupBarcode` reports `missing: MacroKey[]` alongside the mapped food (the 0s it writes into the
+NOT NULL macro columns are placeholders, not measurements). The scan flow branches on it:
+- fully known → saved and straight to the serving picker (unchanged fast path);
+- **partially** known → **not saved**; the editor opens pre-filled with what OFF had and the
+  missing fields **blank**, with a notice naming them. Saving a half-known product silently would
+  bake guesses into the log, where 0 g protein is indistinguishable from measured 0 g protein;
+- unknown → the editor opens with just the barcode attached, so saving it makes the next scan of
+  that tub an instant local hit (this is what protein powders were failing at);
+- lookup error → same manual path, instead of only "Try again".
+Prefill travels as a JSON router param (`src/lib/food-prefill.ts`). Name + calories stay required.
+`barcodeTypes` also accepts `code128`/`itf14` now (supplement tubs and multipacks).
+
+### 4.4 The serving screen leads with the serving ✅
+When logging a food that's already known, `food/[id]` shows name + "N kcal per serving (X g)", the
+amount/unit picker, and a **`MacroSummary`** (display-size calories + colour-keyed P/C/F, shared
+with the entry editor and recipe builder) — the per-100 g/per-serving label editor collapses behind
+"Nutrition facts". It stays expanded for a new/scanned food, because filling it in *is* the task.
+Units offered are only the ones that resolve for that food (a per-serving food with no gram serving
+size no longer offers g/oz and silently computes 0), and switching units converts the amount so the
+real quantity is unchanged (1 serving → 30 g).
+
+### 4.5 Keyboard no longer covers the input ✅
+Every scrollable form (`food/[id]`, `log-entry/[id]`, `recipe/[id]`, `add-food`) sets
+`automaticallyAdjustKeyboardInsets` + `keyboardDismissMode="interactive"`, so iOS grows the content
+inset by the keyboard height and scrolls the focused field above it. Use this on any new form
+screen — it needs no `KeyboardAvoidingView` and no extra layout math.
+
+### 4.6 Entry editor can change units ✅
+`log-entry/[id]` now offers g / oz / serving, not just the unit the entry was logged in. This stays
+snapshot-safe (§5): the only thing read off the current food row is its serving **size in grams** —
+metadata used to translate the amount — while the macros still come from the entry's own snapshot
+scaled by `newGrams / oldGrams`. It needs a gram anchor on both sides, so 'serving' requires the
+food to define a gram serving size, and pre-existing entries stored without `grams` fall back to
+same-unit editing. Logging now records resolved `grams` on the entry so this keeps working going
+forward. Recipe entries stay servings-only.
+
+### 4.7 Recipe ingredients can come from online ✅
+The recipe builder's ingredient search was local-only, so building a recipe meant hand-creating
+every ingredient first. `components/online-food-search.tsx` (extracted from the add-food screen, so
+both use one implementation) adds the explicit "Search online" step — Open Food Facts always, USDA
+when the proxy is configured — and picking a result saves it as a local food row before it becomes
+an ingredient. Typing still never fires network requests (§8).
+
 ## 12. Handoff notes (if a different session implements)
 - Read this doc top-to-bottom; §4–§7 are the contract. Keep every dependency Expo Go-compatible
   in v1 (no native modules beyond Expo SDK built-ins).

@@ -1,69 +1,43 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useState } from 'react';
-import {
-  ActivityIndicator,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  TextInput,
-  View,
-} from 'react-native';
+import { Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 
+import { MealPicker } from '@/components/meal-picker';
+import { OnlineFoodSearch } from '@/components/online-food-search';
 import { ThemedText } from '@/components/themed-text';
 import { Spacing } from '@/constants/theme';
-import {
-  getFoodByBarcode,
-  getFoodBySource,
-  insertFood,
-  recentFoods,
-  searchFoods,
-} from '@/db/queries/foods';
+import { recentFoods, searchFoods } from '@/db/queries/foods';
 import { addEntry } from '@/db/queries/log';
 import { listRecipes } from '@/db/queries/recipes';
 import type { Meal } from '@/db/schema';
 import { useDbData } from '@/hooks/use-db-data';
 import { useTheme } from '@/hooks/use-theme';
-import { todayKey } from '@/lib/dates';
-import { lookupBarcode, searchProducts, type OffSearchHit } from '@/api/openfoodfacts';
-import {
-  normalizeProxyUrl,
-  searchUsda,
-  usdaHitToFood,
-  type UsdaHit,
-} from '@/api/usda';
+import { dayLabel, todayKey } from '@/lib/dates';
+import { defaultMealForNow } from '@/lib/meals';
 import { round1 } from '@/lib/units';
-import { useSettings } from '@/state/settings';
 
 /**
  * The meal-aware add flow (PLAN §8): Search | Scan | Quick | Recipes.
  * Search order is deliberate — History (recency + frequency), then local
  * matches, then online sources behind explicit buttons so typing never
- * fires network requests on its own.
+ * fires network requests on its own (see OnlineFoodSearch).
  *
- * Online sources: Open Food Facts always; USDA generic-food search only
- * when a macrochef-api proxy URL is configured in Settings. A USDA failure
- * downgrades to a one-line notice — never an error screen — because the
- * proxy is optional infrastructure and local + OFF is the guaranteed
- * baseline (PLAN §2 "fully local-first").
+ * The meal is chosen HERE and threaded into every path (scan, quick add,
+ * food and recipe serving pickers). Entering from the Dashboard used to mean
+ * "snack" whether you liked it or not; now the clock picks the starting meal
+ * and the picker is always on screen.
  */
 export default function AddFoodScreen() {
   const theme = useTheme();
   const router = useRouter();
-  const { settings } = useSettings();
   const params = useLocalSearchParams<{ day?: string; meal?: Meal }>();
   const day = params.day ?? todayKey();
-  const meal: Meal = params.meal ?? 'snack';
 
+  const [meal, setMeal] = useState<Meal>(params.meal ?? defaultMealForNow());
   const [query, setQuery] = useState('');
   const [showQuick, setShowQuick] = useState(false);
   const [showRecipes, setShowRecipes] = useState(false);
-  const [offHits, setOffHits] = useState<OffSearchHit[] | null>(null);
-  const [usdaHits, setUsdaHits] = useState<UsdaHit[] | null>(null);
-  const [usdaNotice, setUsdaNotice] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-
-  const usdaBase = normalizeProxyUrl(settings.usdaProxyUrl);
 
   const { data } = useDbData(
     () => ({
@@ -79,69 +53,18 @@ export default function AddFoodScreen() {
       params: { id: String(id), log: '1', day, meal },
     });
 
-  const clearOnline = () => {
-    setOffHits(null);
-    setUsdaHits(null);
-    setUsdaNotice(null);
-  };
-
-  const searchOnline = async () => {
-    setBusy(true);
-    clearOnline();
-    const q = query.trim();
-    // OFF and USDA are independent; run both (when configured) and let each
-    // fail on its own. OFF failure = empty list (existing behavior); USDA
-    // failure = fallback notice, since the proxy may simply not be deployed.
-    const off = searchProducts(q).catch(() => [] as OffSearchHit[]);
-    const usda = usdaBase
-      ? searchUsda(usdaBase, q).then(
-          (hits) => hits,
-          () => {
-            setUsdaNotice('USDA search unavailable — showing local & Open Food Facts only.');
-            return null;
-          },
-        )
-      : Promise.resolve(null);
-    const [offResult, usdaResult] = await Promise.all([off, usda]);
-    setOffHits(offResult);
-    setUsdaHits(usdaResult);
-    setBusy(false);
-  };
-
-  const pickOffHit = async (hit: OffSearchHit) => {
-    setBusy(true);
-    try {
-      // Already saved locally from a previous scan/search?
-      const existing = getFoodByBarcode(hit.code);
-      if (existing) return openFood(existing.id);
-      const result = await lookupBarcode(hit.code);
-      if (result.found && result.food) {
-        const saved = insertFood(result.food);
-        openFood(saved.id);
-      }
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const pickUsdaHit = (hit: UsdaHit) => {
-    // Same save-on-pick pattern as OFF, keyed on fdcId instead of barcode:
-    // re-picking a previously saved USDA food reuses the local row.
-    const existing = getFoodBySource('usda', String(hit.fdcId));
-    if (existing) return openFood(existing.id);
-    const saved = insertFood(usdaHitToFood(hit));
-    openFood(saved.id);
-  };
-
   return (
     <ScrollView
       style={{ backgroundColor: theme.background }}
       contentContainerStyle={styles.content}
       keyboardShouldPersistTaps="handled"
+      keyboardDismissMode="interactive"
+      automaticallyAdjustKeyboardInsets
     >
       <ThemedText type="small" themeColor="textSecondary">
-        Adding to {meal} · {day}
+        Adding to {dayLabel(day)}
       </ThemedText>
+      <MealPicker value={meal} onChange={setMeal} />
 
       <View style={styles.actionRow}>
         <Pressable
@@ -215,10 +138,7 @@ export default function AddFoodScreen() {
         placeholder="Search foods"
         placeholderTextColor={theme.textSecondary}
         value={query}
-        onChangeText={(t) => {
-          setQuery(t);
-          clearOnline();
-        }}
+        onChangeText={setQuery}
         autoCorrect={false}
       />
 
@@ -250,81 +170,7 @@ export default function AddFoodScreen() {
         </ThemedText>
       )}
 
-      {query.trim().length > 1 && (
-        <Pressable style={styles.onlineButton} onPress={searchOnline} disabled={busy}>
-          <ThemedText type="smallBold" style={{ color: '#3c87f7' }}>
-            Search online for “{query.trim()}”
-            {usdaBase ? ' (Open Food Facts + USDA)' : ''}
-          </ThemedText>
-        </Pressable>
-      )}
-      {busy && <ActivityIndicator />}
-      {usdaNotice && (
-        <ThemedText type="small" style={{ color: '#f2a33c' }}>
-          {usdaNotice}
-        </ThemedText>
-      )}
-      {offHits && (
-        <>
-          <ThemedText type="smallBold" themeColor="textSecondary">
-            OPEN FOOD FACTS
-          </ThemedText>
-          {offHits.length === 0 && (
-            <ThemedText type="small" themeColor="textSecondary">
-              No results.
-            </ThemedText>
-          )}
-          {offHits.map((h) => (
-            <Pressable
-              key={h.code}
-              style={[styles.row, { backgroundColor: theme.backgroundElement }]}
-              onPress={() => pickOffHit(h)}
-            >
-              <View style={styles.rowText}>
-                <ThemedText type="small" numberOfLines={1}>
-                  {h.name}
-                </ThemedText>
-                {!!h.brand && (
-                  <ThemedText type="small" themeColor="textSecondary" numberOfLines={1}>
-                    {h.brand}
-                  </ThemedText>
-                )}
-              </View>
-              <Ionicons name="download-outline" size={18} color={theme.textSecondary} />
-            </Pressable>
-          ))}
-        </>
-      )}
-      {usdaHits && (
-        <>
-          <ThemedText type="smallBold" themeColor="textSecondary">
-            USDA (GENERIC FOODS)
-          </ThemedText>
-          {usdaHits.length === 0 && (
-            <ThemedText type="small" themeColor="textSecondary">
-              No results.
-            </ThemedText>
-          )}
-          {usdaHits.map((h) => (
-            <Pressable
-              key={h.fdcId}
-              style={[styles.row, { backgroundColor: theme.backgroundElement }]}
-              onPress={() => pickUsdaHit(h)}
-            >
-              <View style={styles.rowText}>
-                <ThemedText type="small" numberOfLines={1}>
-                  {h.name}
-                </ThemedText>
-                <ThemedText type="small" themeColor="textSecondary" numberOfLines={1}>
-                  {h.brand ? `${h.brand} · ` : ''}
-                  {Math.round(h.calories)} kcal / 100 g
-                </ThemedText>
-              </View>
-              <Ionicons name="download-outline" size={18} color={theme.textSecondary} />
-            </Pressable>
-          ))}
-        </>
-      )}
+      <OnlineFoodSearch query={query} onPick={(food) => openFood(food.id)} />
     </ScrollView>
   );
 }
@@ -391,7 +237,7 @@ function QuickAdd({ day, meal, onDone }: { day: string; meal: Meal; onDone: () =
 }
 
 const styles = StyleSheet.create({
-  content: { padding: Spacing.three, gap: Spacing.three },
+  content: { padding: Spacing.three, gap: Spacing.three, paddingBottom: Spacing.six },
   actionRow: { flexDirection: 'row', gap: Spacing.two },
   action: {
     flex: 1,
@@ -412,7 +258,6 @@ const styles = StyleSheet.create({
     padding: Spacing.three,
   },
   rowText: { flex: 1, gap: 1 },
-  onlineButton: { alignItems: 'center', paddingVertical: Spacing.one },
   quickCard: { borderRadius: 12, padding: Spacing.three, gap: Spacing.two },
   quickRow: { flexDirection: 'row', gap: Spacing.two },
   quickInput: {

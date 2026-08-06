@@ -12,6 +12,8 @@ const USER_AGENT = 'MacroChef/0.1 (iOS; personal project)';
 const PRODUCT_FIELDS =
   'code,product_name,brands,nutriments,serving_size,serving_quantity,nutrition_data_per';
 
+export type MacroKey = 'calories' | 'protein' | 'carbs' | 'fat';
+
 export interface OffLookupResult {
   found: boolean;
   /** Barcode form OFF confirmed (store this on the food). */
@@ -19,6 +21,14 @@ export interface OffLookupResult {
   food?: Omit<NewFood, 'createdAt'>;
   /** True when kcal was present; false means we defaulted macros and UI should flag it. */
   complete?: boolean;
+  /**
+   * Macro fields OFF had no value for. `food` carries 0 for them because the
+   * DB columns are NOT NULL, but 0 is a guess, not data — callers must not
+   * save a product with a non-empty `missing` list silently. The scan flow
+   * routes those into the editor with those fields left blank (PLAN §7
+   * "Missing macros default 0 but flag the food incomplete in UI").
+   */
+  missing?: MacroKey[];
 }
 
 /**
@@ -89,6 +99,15 @@ function mapProduct(p: any, code: string): OffLookupResult {
     if (kj !== undefined) kcal = kj / 4.184;
   }
 
+  const protein = num(n[`proteins${suffix}`]);
+  const carbs = num(n[`carbohydrates${suffix}`]);
+  const fat = num(n[`fat${suffix}`]);
+  const missing: MacroKey[] = [];
+  if (kcal === undefined) missing.push('calories');
+  if (protein === undefined) missing.push('protein');
+  if (carbs === undefined) missing.push('carbs');
+  if (fat === undefined) missing.push('fat');
+
   const servingQty = num(p.serving_quantity);
   const food: Omit<NewFood, 'createdAt'> = {
     name: p.product_name || 'Unnamed product',
@@ -98,9 +117,9 @@ function mapProduct(p: any, code: string): OffLookupResult {
     sourceId: p.code ?? code,
     perHundred: perServing ? 0 : 1,
     calories: Math.round((kcal ?? 0) * 10) / 10,
-    protein: num(n[`proteins${suffix}`]) ?? 0,
-    carbs: num(n[`carbohydrates${suffix}`]) ?? 0,
-    fat: num(n[`fat${suffix}`]) ?? 0,
+    protein: protein ?? 0,
+    carbs: carbs ?? 0,
+    fat: fat ?? 0,
     fiber: num(n[`fiber${suffix}`]),
     sugar: num(n[`sugars${suffix}`]),
     satFat: num(n[`saturated-fat${suffix}`]),
@@ -113,5 +132,5 @@ function mapProduct(p: any, code: string): OffLookupResult {
     servingName: p.serving_size || undefined,
   };
 
-  return { found: true, code, food, complete: kcal !== undefined };
+  return { found: true, code, food, complete: kcal !== undefined, missing };
 }

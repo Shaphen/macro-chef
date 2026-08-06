@@ -1,16 +1,10 @@
 import { StyleSheet, View } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
-import { Spacing } from '@/constants/theme';
+import { MacroColors, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import type { MacroTotals } from '@/lib/nutrition';
 import { useSettings } from '@/state/settings';
-
-const MACRO_COLORS = {
-  protein: '#e4573d',
-  carbs: '#3c87f7',
-  fat: '#f2a33c',
-} as const;
 
 /**
  * The core "targets visible everywhere" component (PLAN §6): calories eaten
@@ -43,7 +37,7 @@ export function MacroBars({ totals, compact = false }: { totals: MacroTotals; co
         label="Protein"
         value={totals.protein}
         target={settings.proteinTargetG}
-        color={MACRO_COLORS.protein}
+        color={MacroColors.protein}
         trackColor={theme.backgroundSelected}
         compact={compact}
       />
@@ -51,7 +45,7 @@ export function MacroBars({ totals, compact = false }: { totals: MacroTotals; co
         label="Carbs"
         value={totals.carbs}
         target={settings.carbTargetG}
-        color={MACRO_COLORS.carbs}
+        color={MacroColors.carbs}
         trackColor={theme.backgroundSelected}
         compact={compact}
       />
@@ -59,7 +53,7 @@ export function MacroBars({ totals, compact = false }: { totals: MacroTotals; co
         label="Fat"
         value={totals.fat}
         target={settings.fatTargetG}
-        color={MACRO_COLORS.fat}
+        color={MacroColors.fat}
         trackColor={theme.backgroundSelected}
         compact={compact}
       />

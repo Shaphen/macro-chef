@@ -1,5 +1,5 @@
 import { Link, useRouter } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, useWindowDimensions, View } from 'react-native';
 import { BarChart, LineChart } from 'react-native-gifted-charts';
 
@@ -30,6 +30,9 @@ const BLUE = '#3c87f7';
 const ORANGE = '#f2a33c';
 const RED = '#e4573d';
 
+/** Hold time before the weight chart's scrub pointer takes over the touch. */
+const ACTIVATE_DELAY = 150;
+
 /**
  * Dashboard (PLAN §6): the 3 v1 cards — Today (MacroBars), Weight (trend
  * chart), Calories (intake bars) — with ONE timeframe selector shared by
@@ -42,6 +45,11 @@ export default function DashboardScreen() {
   const { settings } = useSettings();
   const { width: windowWidth } = useWindowDimensions();
   const [timeframe, setTimeframe] = useState<TimeframeKey>('1M');
+  // Scrubbing the weight chart and scrolling the dashboard are the same
+  // gesture (a finger dragging), so the page has to hold still while the
+  // chart owns the touch — otherwise reading a data point scrolls it off
+  // screen. The chart flips this once its long-press activates.
+  const [scrubbing, setScrubbing] = useState(false);
 
   const days = TIMEFRAMES.find((t) => t.key === timeframe)!.days;
   // null days = "All": use a from-key smaller than any real day key so the
@@ -80,6 +88,12 @@ export default function DashboardScreen() {
     <ScrollView
       style={{ backgroundColor: theme.background }}
       contentContainerStyle={styles.content}
+      scrollEnabled={!scrubbing}
+      // Safety net: touch events bubble, so any lifted finger re-enables
+      // scrolling even if the chart's own end-handler is missed. A page you
+      // can't scroll is a much worse failure than an early unlock.
+      onTouchEnd={() => setScrubbing(false)}
+      onTouchCancel={() => setScrubbing(false)}
     >
       {/* Today */}
       <View style={[styles.card, { backgroundColor: theme.backgroundElement }]}>
@@ -126,7 +140,7 @@ export default function DashboardScreen() {
           WEIGHT
         </ThemedText>
         <WeightSummary latest={latest} visible={trendVisible} />
-        <WeightChart points={trendVisible} width={chartWidth} />
+        <WeightChart points={trendVisible} width={chartWidth} onScrub={setScrubbing} />
         <Link href="/weight" asChild>
           <Pressable style={styles.secondaryButton}>
             <ThemedText type="smallBold" style={{ color: BLUE }}>
@@ -263,9 +277,36 @@ function WeightSummary({
  * the series minimum (yAxisOffset) because body weight far from zero would
  * otherwise flatten the line into the top 5% of the chart.
  */
-function WeightChart({ points, width }: { points: TrendPoint[]; width: number }) {
+function WeightChart({
+  points,
+  width,
+  onScrub,
+}: {
+  points: TrendPoint[];
+  width: number;
+  /** Told when the long-press scrub owns the touch, so the page can freeze. */
+  onScrub: (active: boolean) => void;
+}) {
   const theme = useTheme();
   const { settings } = useSettings();
+
+  // The library activates its pointer after ACTIVATE_DELAY of holding, and
+  // gives us no callback at that moment — so mirror its rule with our own
+  // timer and lock the parent scroll at the same instant. Locking on touch
+  // *start* instead would make a plain flick across the chart un-scrollable.
+  const holdTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const beginHold = () => {
+    if (holdTimer.current) clearTimeout(holdTimer.current);
+    holdTimer.current = setTimeout(() => onScrub(true), ACTIVATE_DELAY);
+  };
+  const endHold = () => {
+    if (holdTimer.current) clearTimeout(holdTimer.current);
+    holdTimer.current = null;
+    onScrub(false);
+  };
+  // Never leave the page frozen if the touch is torn down with the screen.
+  useEffect(() => endHold, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   if (points.length < 2) {
     return points.length === 0 ? null : (
       <ThemedText type="small" themeColor="textSecondary">
@@ -299,6 +340,7 @@ function WeightChart({ points, width }: { points: TrendPoint[]; width: number })
   const yOffset = Math.floor(min - pad);
 
   return (
+    <>
     <LineChart
       data={trendData}
       data2={rawData}
@@ -323,10 +365,16 @@ function WeightChart({ points, width }: { points: TrendPoint[]; width: number })
       hideRules
       disableScroll
       // Long-press then drag to scrub the series; the tooltip reports the
-      // weigh-in logged that day alongside the trend value.
+      // weigh-in logged that day alongside the trend value, and persists
+      // after you lift your finger so the reading survives moving your hand
+      // out of the way.
       pointerConfig={{
         activatePointersOnLongPress: true,
-        activatePointersDelay: 150,
+        activatePointersDelay: ACTIVATE_DELAY,
+        persistPointer: true,
+        onTouchStart: beginHold,
+        onTouchEnd: endHold,
+        onResponderEnd: endHold,
         pointerStripHeight: 160,
         pointerStripWidth: 1,
         pointerStripColor: theme.textSecondary,
@@ -353,6 +401,10 @@ function WeightChart({ points, width }: { points: TrendPoint[]; width: number })
           }
         : {})}
     />
+    <ThemedText type="small" themeColor="textSecondary" style={styles.chartHint}>
+      Press and hold the chart to read a day.
+    </ThemedText>
+    </>
   );
 }
 
@@ -527,6 +579,7 @@ const styles = StyleSheet.create({
   activityRow: { flexDirection: 'row', justifyContent: 'space-between' },
   activityStat: { gap: 2 },
   tooltip: { borderRadius: 10, padding: Spacing.two, gap: 2 },
+  chartHint: { textAlign: 'center' },
   barDetail: {
     flexDirection: 'row',
     alignItems: 'center',
