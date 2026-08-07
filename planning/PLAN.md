@@ -627,6 +627,18 @@ fires before overflow AND the flipped label still clears the left edge (18 pt sp
 The left edge needed nothing — its branch (`pointerX < pointerLabelWidth/2` → `left = 7`) already
 worked, which is why only the right side misbehaved.
 
+### 6.6 Tapping outside the weight chart dismisses its tooltip ✅
+`persistPointer` (Part 4.1) deliberately keeps the tooltip after you lift your finger, which left
+no way to get rid of it. Now any touch outside the chart clears it. Two details worth keeping:
+gifted-charts' `LineChart` is **not** a `forwardRef` and exposes no imperative "clear pointer", so
+dismissal is a **remount by `key`** — visually free because `isAnimated` defaults to false, so the
+redraw is instant rather than a replayed line-draw animation. And the page-level `onTouchStart`
+(same bubbling the existing `onTouchEnd` safety net relies on) sees touches that begin ON the chart
+too, so a `touchedChart` ref set by a wrapper View — whose handler runs first, target→root — marks
+those and skips the dismissal; without it, starting a new long-press would remount the chart out
+from under the gesture creating the tooltip. The remount is further gated on a `pointerVisible`
+flag so ordinary page scrolls don't rebuild the chart. Hint text now spells the gesture out.
+
 ### 6.4 USDA proxy config is no longer in Settings ✅
 It is a developer integration (you must deploy `macrochef-api` yourself), not something an app user
 can act on — and since Part 5 generic-food search works offline out of the box. The

@@ -71,6 +71,36 @@ export default function DashboardScreen() {
   // screen. The chart flips this once its long-press activates.
   const [scrubbing, setScrubbing] = useState(false);
 
+  // The scrub tooltip persists after you lift your finger (PLAN Part 4.1),
+  // so it needs an explicit way out: a touch anywhere OUTSIDE the chart
+  // dismisses it. gifted-charts exposes no imperative "clear pointer" (its
+  // LineChart isn't a forwardRef), so the chart is remounted by key — which
+  // is invisible here because `isAnimated` defaults to false, making the
+  // redraw instant rather than a replayed line-draw.
+  const [chartKey, setChartKey] = useState(0);
+  // Only remount when a tooltip is actually on screen; otherwise every page
+  // scroll would rebuild the chart for nothing.
+  const [pointerVisible, setPointerVisible] = useState(false);
+  // Touch events bubble target→root, so the chart's own handler runs first
+  // and marks the touch as "started inside the chart" before the page-level
+  // handler decides whether to dismiss. Without this, beginning a new
+  // long-press would tear down the chart mid-gesture.
+  const touchedChart = useRef(false);
+
+  const handleScrub = (active: boolean) => {
+    setScrubbing(active);
+    // Not cleared on release — that is the whole point of persistPointer.
+    if (active) setPointerVisible(true);
+  };
+
+  const handleTouchStart = () => {
+    if (!touchedChart.current && pointerVisible) {
+      setChartKey((k) => k + 1);
+      setPointerVisible(false);
+    }
+    touchedChart.current = false;
+  };
+
   const days = TIMEFRAMES.find((t) => t.key === timeframe)!.days;
   // null days = "All": use a from-key smaller than any real day key so the
   // string-compare queries/filters pass everything through.
@@ -114,6 +144,9 @@ export default function DashboardScreen() {
       // can't scroll is a much worse failure than an early unlock.
       onTouchEnd={() => setScrubbing(false)}
       onTouchCancel={() => setScrubbing(false)}
+      // Same bubbling: this sees every touch on the page, and dismisses the
+      // persistent chart tooltip unless the touch began on the chart itself.
+      onTouchStart={handleTouchStart}
     >
       {/* Today */}
       <View style={[styles.card, { backgroundColor: theme.backgroundElement }]}>
@@ -160,7 +193,21 @@ export default function DashboardScreen() {
           WEIGHT
         </ThemedText>
         <WeightSummary latest={latest} visible={trendVisible} />
-        <WeightChart points={trendVisible} width={chartWidth} onScrub={setScrubbing} />
+        {/* Marks touches that START on the chart so the page-level handler
+            leaves them alone — a new long-press must not dismiss/remount the
+            chart out from under the gesture that is creating the tooltip. */}
+        <View
+          onTouchStart={() => {
+            touchedChart.current = true;
+          }}
+        >
+          <WeightChart
+            key={chartKey}
+            points={trendVisible}
+            width={chartWidth}
+            onScrub={handleScrub}
+          />
+        </View>
         <Link href="/weight" asChild>
           <Pressable style={styles.secondaryButton}>
             <ThemedText type="smallBold" style={{ color: BLUE }}>
@@ -459,7 +506,7 @@ function WeightChart({
         : {})}
     />
     <ThemedText type="small" themeColor="textSecondary" style={styles.chartHint}>
-      Press and hold the chart to read a day.
+      Press and hold the chart to read a day · tap anywhere else to dismiss.
     </ThemedText>
     </>
   );
