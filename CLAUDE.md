@@ -53,6 +53,10 @@ a real device, not the simulator.
 - **Forms**: scrollable form screens set `automaticallyAdjustKeyboardInsets` +
   `keyboardDismissMode="interactive"` on the `ScrollView` so iOS lifts the focused input
   above the keyboard. Use that rather than adding `KeyboardAvoidingView`.
+- **Anything tappable inside a `Swipeable` must use gesture-handler's `Pressable`**, not React
+  Native's (PLAN Part 6.1). RN's runs on the JS responder system and never gets cancelled by the
+  parent pan, so a swipe-to-reveal also fired the row's `onPress`. The Log screen is the only
+  Swipeable today; buttons outside one stay RN core.
 - **DB**: `src/db/client.ts` opens SQLite and runs hand-rolled append-only SQL migrations
   (tracked via `PRAGMA user_version`) as a module side-effect, so importing any query file
   guarantees the schema. Drizzle schema in `src/db/schema.ts`; all reads/writes go through

@@ -11,9 +11,16 @@ import { kgToLb, lbToKg } from '@/lib/units';
 import { useSettings } from '@/state/settings';
 
 /**
- * Settings (PLAN §8): goals editor, units, USDA proxy config (§11), the Apple
- * Health connection (Part 3), export/import (§8), and the OFF attribution the
- * ODbL license requires (§8 "about/licenses").
+ * Settings (PLAN §8): goals editor, units, the Apple Health connection
+ * (Part 3), export/import (§8), and the OFF attribution the ODbL license
+ * requires (§8 "about/licenses").
+ *
+ * The USDA proxy (`settings.usda_proxy_url`, §11) deliberately has NO UI: it
+ * is a developer integration — you must deploy macrochef-api yourself — not
+ * something an app user can act on, and generic-food search now works
+ * offline out of the box from the bundled USDA database (Part 5). The column
+ * and the client still exist; set it directly in the DB when developing.
+ * `save()` must therefore leave that field alone rather than writing null.
  */
 export default function SettingsScreen() {
   const theme = useTheme();
@@ -32,7 +39,6 @@ export default function SettingsScreen() {
   const [protein, setProtein] = useState(settings.proteinTargetG?.toString() ?? '');
   const [carbs, setCarbs] = useState(settings.carbTargetG?.toString() ?? '');
   const [fat, setFat] = useState(settings.fatTargetG?.toString() ?? '');
-  const [usdaUrl, setUsdaUrl] = useState(settings.usdaProxyUrl ?? '');
   const [busy, setBusy] = useState(false);
 
   const health = useHealthSync();
@@ -69,9 +75,8 @@ export default function SettingsScreen() {
       proteinTargetG: parseInt(protein, 10) || null,
       carbTargetG: parseInt(carbs, 10) || null,
       fatTargetG: parseInt(fat, 10) || null,
-      // Stored raw; normalization to a fetchable URL happens at use time
-      // (src/api/usda.ts) so whatever the user pasted stays visible here.
-      usdaProxyUrl: usdaUrl.trim() || null,
+      // usdaProxyUrl is intentionally absent — see the header comment. Listing
+      // it here would clear a developer-configured proxy on every save.
       onboarded: 1,
     });
     Alert.alert('Saved', 'Your settings are updated.');
@@ -174,25 +179,6 @@ export default function SettingsScreen() {
       {field('Carbs', carbs, setCarbs, 'g/day')}
       {field('Fat', fat, setFat, 'g/day')}
 
-      <ThemedText type="smallBold" themeColor="textSecondary">
-        USDA SEARCH (OPTIONAL)
-      </ThemedText>
-      <ThemedText type="small" themeColor="textSecondary">
-        Paste your deployed macrochef-api URL to add USDA generic-food search. See
-        macrochef-api/README.md in the repo for the one-time Vercel setup. Leave empty to
-        stay local + Open Food Facts only.
-      </ThemedText>
-      <TextInput
-        style={[styles.urlInput, { backgroundColor: theme.backgroundElement, color: theme.text }]}
-        value={usdaUrl}
-        onChangeText={setUsdaUrl}
-        placeholder="https://macrochef-api.vercel.app"
-        placeholderTextColor={theme.textSecondary}
-        autoCapitalize="none"
-        autoCorrect={false}
-        keyboardType="url"
-      />
-
       <Pressable style={styles.saveButton} onPress={save}>
         <ThemedText style={styles.saveText}>Save</ThemedText>
       </Pressable>
@@ -274,8 +260,8 @@ export default function SettingsScreen() {
           </ThemedText>
         </Pressable>
         <ThemedText type="small" themeColor="textSecondary">
-          Generic-food data (when enabled) from USDA FoodData Central. All your data stays
-          on this device.
+          Generic foods from USDA FoodData Central (SR Legacy, public domain), bundled with
+          the app and searchable offline. All your data stays on this device.
         </ThemedText>
       </View>
     </ScrollView>
@@ -302,12 +288,6 @@ const styles = StyleSheet.create({
     textAlign: 'right',
   },
   suffix: { width: 64 },
-  urlInput: {
-    borderRadius: 10,
-    paddingHorizontal: Spacing.three,
-    paddingVertical: 10,
-    fontSize: 15,
-  },
   saveButton: {
     backgroundColor: '#3c87f7',
     borderRadius: 12,

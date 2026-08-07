@@ -1,3 +1,4 @@
+import { Ionicons } from '@expo/vector-icons';
 import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
@@ -23,6 +24,7 @@ import {
   formatKcal,
   formatSteps,
   formatWorkoutDuration,
+  workoutVisual,
 } from '@/lib/activity-format';
 import { addDays, dayLabel, todayKey } from '@/lib/dates';
 import { useSettings } from '@/state/settings';
@@ -255,20 +257,7 @@ export default function HealthScreen() {
       />
 
       {/* Workouts */}
-      <View style={[styles.card, { backgroundColor: theme.backgroundElement }]}>
-        <ThemedText type="smallBold" themeColor="textSecondary">
-          WORKOUTS
-        </ThemedText>
-        {data.workouts.length === 0 ? (
-          <ThemedText type="small" themeColor="textSecondary">
-            No workouts in this period.
-          </ThemedText>
-        ) : (
-          data.workouts.map((w) => (
-            <WorkoutRow key={w.uuid} workout={w} unitWeight={settings.unitWeight} />
-          ))
-        )}
-      </View>
+      <WorkoutsCard workouts={data.workouts} unitWeight={settings.unitWeight} range={range} />
     </ScrollView>
   );
 }
@@ -382,32 +371,118 @@ function HistoryCard({
   );
 }
 
-function WorkoutRow({
+/** Workouts revealed per page — one screenful of tiles at a time. */
+const WORKOUT_PAGE = 6;
+
+/**
+ * Workouts as a two-column tile grid rather than a text list: each tile
+ * leads with an activity-coloured icon badge, then the headline duration,
+ * then energy/distance. `workoutsSince` returns newest-first, so slicing
+ * from the head is "most recent N".
+ *
+ * Pagination is reveal-more (not replace), because these are short reads
+ * people scan chronologically; the count of what's still hidden is spelled
+ * out so the list never looks truncated by accident. Changing the range
+ * resets it — page 3 of a 3-month range is meaningless once you switch to a
+ * week.
+ */
+function WorkoutsCard({
+  workouts,
+  unitWeight,
+  range,
+}: {
+  workouts: HealthWorkout[];
+  unitWeight: 'lb' | 'kg';
+  range: RangeKey;
+}) {
+  const theme = useTheme();
+  const [shown, setShown] = useState(WORKOUT_PAGE);
+  useEffect(() => setShown(WORKOUT_PAGE), [range]);
+
+  const visible = workouts.slice(0, shown);
+  const remaining = workouts.length - visible.length;
+
+  return (
+    <View style={[styles.card, { backgroundColor: theme.backgroundElement }]}>
+      <View style={styles.workoutsHeader}>
+        <ThemedText type="smallBold" themeColor="textSecondary">
+          WORKOUTS
+        </ThemedText>
+        {workouts.length > 0 && (
+          <ThemedText type="small" themeColor="textSecondary">
+            {workouts.length} in this period
+          </ThemedText>
+        )}
+      </View>
+
+      {workouts.length === 0 ? (
+        <ThemedText type="small" themeColor="textSecondary">
+          No workouts in this period.
+        </ThemedText>
+      ) : (
+        <>
+          <View style={styles.workoutGrid}>
+            {visible.map((w) => (
+              <WorkoutTile key={w.uuid} workout={w} unitWeight={unitWeight} />
+            ))}
+          </View>
+          {remaining > 0 && (
+            <Pressable style={styles.showMore} onPress={() => setShown((n) => n + WORKOUT_PAGE)}>
+              <ThemedText type="smallBold" style={{ color: BLUE }}>
+                Show {Math.min(remaining, WORKOUT_PAGE)} more ({remaining} left)
+              </ThemedText>
+            </Pressable>
+          )}
+          {remaining === 0 && workouts.length > WORKOUT_PAGE && (
+            <Pressable style={styles.showMore} onPress={() => setShown(WORKOUT_PAGE)}>
+              <ThemedText type="smallBold" themeColor="textSecondary">
+                Show less
+              </ThemedText>
+            </Pressable>
+          )}
+        </>
+      )}
+    </View>
+  );
+}
+
+function WorkoutTile({
   workout,
   unitWeight,
 }: {
   workout: HealthWorkout;
   unitWeight: 'lb' | 'kg';
 }) {
-  const detail = [
-    formatWorkoutDuration(workout.durationSec),
+  const theme = useTheme();
+  const { icon, color } = workoutVisual(workout.activity);
+  // Energy and distance are both optional on a HealthKit workout; the tile
+  // keeps whichever exist on one line rather than reserving empty slots.
+  const stats = [
     workout.energyKcal != null ? formatKcal(workout.energyKcal) : null,
     workout.distanceM ? formatDistance(workout.distanceM, unitWeight) : null,
-  ]
-    .filter(Boolean)
-    .join(' · ');
+  ].filter(Boolean);
 
   return (
-    <View style={styles.workoutRow}>
-      <View style={styles.workoutMain}>
-        <ThemedText type="smallBold">{workout.activity}</ThemedText>
-        <ThemedText type="small" themeColor="textSecondary">
-          {detail}
+    <View style={styles.workoutTileOuter}>
+      <View style={[styles.workoutTile, { backgroundColor: theme.background }]}>
+        <View style={[styles.workoutIcon, { backgroundColor: `${color}22` }]}>
+          <Ionicons name={icon} size={18} color={color} />
+        </View>
+        <ThemedText type="smallBold" numberOfLines={1}>
+          {workout.activity}
+        </ThemedText>
+        <ThemedText style={[styles.workoutDuration, { color }]}>
+          {formatWorkoutDuration(workout.durationSec)}
+        </ThemedText>
+        {stats.length > 0 && (
+          <ThemedText type="small" themeColor="textSecondary" numberOfLines={1}>
+            {stats.join(' · ')}
+          </ThemedText>
+        )}
+        <ThemedText type="small" themeColor="textSecondary" numberOfLines={1}>
+          {dayLabel(workout.day)}
         </ThemedText>
       </View>
-      <ThemedText type="small" themeColor="textSecondary">
-        {dayLabel(workout.day)}
-      </ThemedText>
     </View>
   );
 }
@@ -431,11 +506,21 @@ const styles = StyleSheet.create({
   },
   primaryButtonText: { color: '#fff', fontWeight: '700' },
   secondaryButton: { flex: 1, alignItems: 'center', paddingVertical: Spacing.two },
-  workoutRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+  workoutsHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  // Two columns via 50%-wide wrappers with inner padding: percentage widths
+  // and `gap` on the same row would overflow, since the gap is added on top
+  // of the percentage rather than divided out of it.
+  workoutGrid: { flexDirection: 'row', flexWrap: 'wrap' },
+  workoutTileOuter: { width: '50%', padding: Spacing.one },
+  workoutTile: { borderRadius: 12, padding: Spacing.two, gap: 2 },
+  workoutIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
     alignItems: 'center',
-    paddingVertical: Spacing.one,
+    justifyContent: 'center',
+    marginBottom: Spacing.one,
   },
-  workoutMain: { flex: 1, gap: 2 },
+  workoutDuration: { fontSize: 17, fontWeight: '700' },
+  showMore: { alignItems: 'center', paddingVertical: Spacing.two },
 });

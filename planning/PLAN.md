@@ -573,6 +573,68 @@ copies it into `foods` via `seedFoodToNewFood` (lib/seed-foods.ts) with `source=
 hits already saved locally are hidden from the section. From there it's a normal local food:
 serving picker, snapshots, history, recipes.
 
+## Part 6 — Swipe fix + activity/workout presentation (added 2026-08-06)
+
+Reported by Shaphen after living with Part 5: swiping a log row to reveal Delete also pushed the
+entry editor, the Dashboard's activity strip was too small to read, and workouts were a plain text
+list.
+
+### 6.1 Swiping a log row no longer drills into the editor ✅
+**The load-bearing detail:** anything tappable *inside* a `Swipeable` must use gesture-handler's
+`Pressable`, not React Native's. RN's `Pressable` runs on the JS responder system, which does not
+take part in gesture-handler's arbitration — the pan that opens the row never cancelled it, so
+lifting your finger after a swipe still registered as a tap and pushed `/log-entry/[id]`.
+Gesture-handler's `Pressable` is built on a tap gesture, so the parent pan wins and the press is
+cancelled. Both the row and the Delete button in `renderRightActions` were converted; the screen's
+other buttons (date arrows, add, undo) are outside any Swipeable and stay RN core. The Log screen
+is currently the app's only Swipeable — apply this rule to any new one.
+Long-press action sheet: "Duplicate…" → "Duplicate" (no ellipsis).
+
+### 6.2 Dashboard ACTIVITY card carries real weight ✅
+Was three `smallBold` values on one line. Now a 2×2 grid of display-size (20 pt) metrics — Steps,
+Active energy, Exercise, Sleep — accent-coloured to the same families the Activity screen uses
+(steps blue, energy/exercise orange, sleep purple), with the resting/total-burn line underneath
+when Health has it and an explicit "Details →" affordance. Still one tap through to `/health`, and
+still hidden entirely when HealthKit is unavailable.
+
+### 6.3 Workouts are tiles, paginated ✅
+`WorkoutsCard` renders a two-column tile grid: activity-coloured icon badge, activity name,
+display-size duration, then energy/distance and the day. `workoutVisual()` (lib/activity-format.ts)
+owns the icon + accent mapping, keyed by the humanized strings `workoutLabel()` emits and grouped
+by effort family (cardio blue / strength orange / low-impact purple / other grey-blue), with a
+generic badge fallback so an unmapped activity can never render a broken glyph. A unit test walks
+every activity type the sync can produce, so renaming a label fails CI instead of silently
+demoting real workouts.
+Pagination is reveal-more, 6 at a time (`workoutsSince` is newest-first, so slicing from the head
+is "most recent N"), with the remaining count spelled out and a Show less once fully expanded;
+changing the range resets it.
+**CSS gotcha:** the grid uses 50%-wide wrappers with inner padding, NOT `gap` — percentage widths
+plus `gap` on the same row overflow, because the gap is added on top of the percentage rather than
+divided out of it.
+
+### 6.5 Weight-chart tooltip no longer clips at the right edge ✅
+Scrubbing today/yesterday cut the tooltip off; the leftmost points were already fine.
+**The load-bearing detail:** gifted-charts' `autoAdjustPointerLabelPosition` centres the label at
+`-pointerLabelWidth/2 + 5` from the pointer but only flips it to the LEFT of the pointer once
+`pointerX > totalWidth + 10 - pointerLabelWidth/2`. Solving those so the flip always beats the
+overflow gives the invariant **`pointerLabelWidth >= renderedWidth + 15`**. Two things follow:
+`pointerLabelWidth` is a *positioning input, not a size* (it never sizes the label), and the label
+component must therefore have a **fixed width** — ours was auto-sized to its text, so the boundary
+was computed against a width the label didn't have, and the newest points (the ones you scrub most)
+overflowed. Now `TOOLTIP_WIDTH = 150` is pinned in `styles.tooltip` and `pointerLabelWidth` is
+`TOOLTIP_WIDTH + 20`; change the two together. Verified across 375/390/430 pt widths: the flip
+fires before overflow AND the flipped label still clears the left edge (18 pt spare on an SE).
+The left edge needed nothing — its branch (`pointerX < pointerLabelWidth/2` → `left = 7`) already
+worked, which is why only the right side misbehaved.
+
+### 6.4 USDA proxy config is no longer in Settings ✅
+It is a developer integration (you must deploy `macrochef-api` yourself), not something an app user
+can act on — and since Part 5 generic-food search works offline out of the box. The
+`settings.usda_proxy_url` column and `src/api/usda.ts` are unchanged and still honoured when set
+directly in the DB; the Settings UI simply no longer renders the field, and `save()` deliberately
+omits `usdaProxyUrl` from its update so saving can't clear a developer-configured proxy. The About
+section now credits the bundled USDA SR Legacy data instead of describing the proxy as optional.
+
 ## 12. Handoff notes (if a different session implements)
 - Read this doc top-to-bottom; §4–§7 are the contract. Keep every dependency Expo Go-compatible
   in v1 (no native modules beyond Expo SDK built-ins).

@@ -29,9 +29,29 @@ import { useSettings } from '@/state/settings';
 const BLUE = '#3c87f7';
 const ORANGE = '#f2a33c';
 const RED = '#e4573d';
+const PURPLE = '#8b5cf6';
 
 /** Hold time before the weight chart's scrub pointer takes over the touch. */
 const ACTIVATE_DELAY = 150;
+
+/**
+ * Weight-chart tooltip geometry. Both constants are load-bearing and must be
+ * changed together.
+ *
+ * gifted-charts' `autoAdjustPointerLabelPosition` centres the label at
+ * `-pointerLabelWidth / 2 + 5` from the pointer, but only flips it to the
+ * LEFT of the pointer once `pointerX > totalWidth + 10 - pointerLabelWidth / 2`.
+ * Solving those so the flip always happens before the label's right edge
+ * crosses the plot edge gives `pointerLabelWidth >= width + 15`.
+ *
+ * Two consequences: the tooltip needs a FIXED width (otherwise the boundary
+ * is computed against a width the label doesn't actually have — an
+ * auto-sized label overflowed on the newest points, which are the ones you
+ * scrub most), and pointerLabelWidth is a positioning input only, NOT the
+ * rendered width, so it is deliberately larger than the tooltip itself.
+ */
+const TOOLTIP_WIDTH = 150;
+const TOOLTIP_POINTER_WIDTH = TOOLTIP_WIDTH + 20;
 
 /**
  * Dashboard (PLAN §6): the 3 v1 cards — Today (MacroBars), Weight (trend
@@ -171,6 +191,12 @@ export default function DashboardScreen() {
  * Today's Apple Health numbers, linking through to the Activity screen.
  * Hidden entirely when HealthKit can't be used (Expo Go, Android) — an
  * always-visible "unavailable" card would be noise on every launch.
+ *
+ * Sized to match the other Dashboard cards rather than sitting under them as
+ * a caption: four display-size metrics in a 2×2 grid, accent-coloured to the
+ * same families the Activity screen uses (steps blue, energy/exercise
+ * orange, sleep purple), with the resting/total burn line underneath when
+ * Health has it. The whole card is still one tap through to the charts.
  */
 function ActivityCard({
   row,
@@ -187,38 +213,69 @@ function ActivityCard({
   return (
     <Link href="/health" asChild>
       <Pressable style={[styles.card, { backgroundColor: theme.backgroundElement }]}>
-        <ThemedText type="smallBold" themeColor="textSecondary">
-          ACTIVITY
-        </ThemedText>
+        <View style={styles.cardHeader}>
+          <ThemedText type="smallBold" themeColor="textSecondary">
+            ACTIVITY
+          </ThemedText>
+          {enabled && (
+            <ThemedText type="smallBold" style={{ color: BLUE }}>
+              Details →
+            </ThemedText>
+          )}
+        </View>
         {!enabled ? (
           <ThemedText type="smallBold" style={{ color: BLUE }}>
             Connect Apple Health →
           </ThemedText>
         ) : (
-          <View style={styles.activityRow}>
-            <ActivityStat
-              label="Steps"
-              value={row?.steps != null ? formatSteps(row.steps) : '—'}
-            />
-            <ActivityStat
-              label="Active"
-              value={row?.activeEnergyKcal != null ? formatKcal(row.activeEnergyKcal) : '—'}
-            />
-            <ActivityStat
-              label="Sleep"
-              value={row?.sleepMinutes != null ? formatDuration(row.sleepMinutes) : '—'}
-            />
-          </View>
+          <>
+            <View style={styles.activityGrid}>
+              <ActivityStat
+                label="Steps"
+                value={row?.steps != null ? formatSteps(row.steps) : '—'}
+                color={BLUE}
+              />
+              <ActivityStat
+                label="Active energy"
+                value={row?.activeEnergyKcal != null ? formatKcal(row.activeEnergyKcal) : '—'}
+                color={ORANGE}
+              />
+              <ActivityStat
+                label="Exercise"
+                value={row?.exerciseMinutes != null ? formatDuration(row.exerciseMinutes) : '—'}
+                color={ORANGE}
+              />
+              <ActivityStat
+                label="Sleep last night"
+                value={row?.sleepMinutes != null ? formatDuration(row.sleepMinutes) : '—'}
+                color={PURPLE}
+              />
+            </View>
+            {row?.basalEnergyKcal != null && (
+              <ThemedText type="small" themeColor="textSecondary">
+                Resting {formatKcal(row.basalEnergyKcal)} · total burn{' '}
+                {formatKcal(row.basalEnergyKcal + (row.activeEnergyKcal ?? 0))}
+              </ThemedText>
+            )}
+          </>
         )}
       </Pressable>
     </Link>
   );
 }
 
-function ActivityStat({ label, value }: { label: string; value: string }) {
+function ActivityStat({
+  label,
+  value,
+  color,
+}: {
+  label: string;
+  value: string;
+  color: string;
+}) {
   return (
     <View style={styles.activityStat}>
-      <ThemedText type="smallBold">{value}</ThemedText>
+      <ThemedText style={[styles.activityStatValue, { color }]}>{value}</ThemedText>
       <ThemedText type="small" themeColor="textSecondary">
         {label}
       </ThemedText>
@@ -380,7 +437,7 @@ function WeightChart({
         pointerStripColor: theme.textSecondary,
         pointerColor: BLUE,
         radius: 5,
-        pointerLabelWidth: 150,
+        pointerLabelWidth: TOOLTIP_POINTER_WIDTH,
         pointerLabelHeight: 74,
         autoAdjustPointerLabelPosition: true,
         pointerLabelComponent: (items: unknown[]) => (
@@ -576,9 +633,13 @@ const styles = StyleSheet.create({
   },
   primaryButtonText: { color: '#fff', fontWeight: '700' },
   secondaryButton: { alignItems: 'center', paddingVertical: Spacing.one },
-  activityRow: { flexDirection: 'row', justifyContent: 'space-between' },
-  activityStat: { gap: 2 },
-  tooltip: { borderRadius: 10, padding: Spacing.two, gap: 2 },
+  cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  activityGrid: { flexDirection: 'row', flexWrap: 'wrap', rowGap: Spacing.three },
+  activityStat: { width: '50%', gap: 2 },
+  activityStatValue: { fontSize: 20, fontWeight: '700' },
+  // Fixed width — see TOOLTIP_WIDTH: the edge-flip boundary is computed from
+  // pointerLabelWidth, so an auto-sized label makes it wrong.
+  tooltip: { width: TOOLTIP_WIDTH, borderRadius: 10, padding: Spacing.two, gap: 2 },
   chartHint: { textAlign: 'center' },
   barDetail: {
     flexDirection: 'row',

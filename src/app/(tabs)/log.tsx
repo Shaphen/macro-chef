@@ -126,7 +126,7 @@ export default function LogScreen() {
    */
   const entryActions = (entry: LogEntry) => {
     Alert.alert(entry.name, undefined, [
-      { text: 'Duplicate…', onPress: () => pickDuplicateMeal(entry) },
+      { text: 'Duplicate', onPress: () => pickDuplicateMeal(entry) },
       { text: 'Delete', style: 'destructive', onPress: () => performDelete(entry) },
       { text: 'Cancel', style: 'cancel' },
     ]);
