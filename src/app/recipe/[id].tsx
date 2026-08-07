@@ -3,6 +3,7 @@ import { useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 
+import { GenericFoodResults } from '@/components/generic-food-results';
 import { MacroSummary } from '@/components/macro-summary';
 import { MealPicker } from '@/components/meal-picker';
 import { OnlineFoodSearch } from '@/components/online-food-search';
@@ -337,9 +338,11 @@ export default function RecipeScreen() {
         </ThemedText>
       )}
 
-      {/* Ingredients can come straight from Open Food Facts / USDA; picking
-          one saves it as a local food first, so the recipe still references
-          a real row (and it's reusable everywhere else afterwards). */}
+      {/* Ingredients can come from the bundled USDA generics (offline,
+          as-you-type) or Open Food Facts / USDA online; picking one saves it
+          as a local food first, so the recipe still references a real row
+          (and it's reusable everywhere else afterwards). */}
+      <GenericFoodResults query={search} onPick={addIngredient} />
       <OnlineFoodSearch query={search} onPick={addIngredient} pickIcon="add-circle-outline" />
 
       <View style={[styles.totalsCard, { backgroundColor: theme.backgroundElement }]}>

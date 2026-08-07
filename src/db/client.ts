@@ -2,6 +2,7 @@ import { drizzle } from 'drizzle-orm/expo-sqlite';
 import { openDatabaseSync } from 'expo-sqlite';
 
 import * as schema from './schema';
+import { ensureSeedFoods } from './seed';
 
 /**
  * Hand-rolled migrations: append-only SQL, tracked with PRAGMA user_version.
@@ -148,6 +149,33 @@ const MIGRATIONS: string[] = [
   `
   UPDATE settings SET health_last_sync_at = NULL;
   `,
+  // v5 — bundled offline generic-food database (PLAN Part 5). seed_foods is
+  // an asset-derived cache imported from src/data/seed-foods.json (USDA SR
+  // Legacy, public domain): not user data, excluded from backups, replaced
+  // wholesale when the bundled version changes. seed_meta records which
+  // bundle version is loaded so normal launches skip the import entirely.
+  `
+  CREATE TABLE seed_foods (
+    fdc_id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL,
+    calories REAL NOT NULL,
+    protein REAL NOT NULL,
+    carbs REAL NOT NULL,
+    fat REAL NOT NULL,
+    fiber REAL,
+    sugar REAL,
+    sat_fat REAL,
+    sodium_mg REAL,
+    serving_qty REAL,
+    serving_name TEXT
+  );
+  CREATE INDEX idx_seed_foods_name ON seed_foods(name);
+
+  CREATE TABLE seed_meta (
+    id INTEGER PRIMARY KEY,
+    version INTEGER NOT NULL
+  );
+  `,
 ];
 
 export const sqlite = openDatabaseSync('macrochef.db');
@@ -166,5 +194,7 @@ function runMigrations(): void {
 }
 
 // Module side-effect: every DB consumer imports this file, so the schema is
-// guaranteed current before any query runs.
+// guaranteed current before any query runs. Same guarantee for the seed
+// database — after this line, seed_foods is populated and searchable.
 runMigrations();
+ensureSeedFoods(sqlite);

@@ -2,6 +2,14 @@ import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+// Anything TAPPABLE INSIDE a Swipeable must use gesture-handler's own
+// Pressable, not React Native's. RN's Pressable runs on the JS responder
+// system, which doesn't take part in gesture-handler's arbitration: the pan
+// that opens the row never cancels it, so releasing after a swipe still
+// counted as a tap and pushed the entry editor. Gesture-handler's Pressable
+// is built on a tap gesture, so the parent pan wins and the press is
+// cancelled. (Screen-level buttons outside a Swipeable stay RN core.)
+import { Pressable as GesturePressable } from 'react-native-gesture-handler';
 import ReanimatedSwipeable from 'react-native-gesture-handler/ReanimatedSwipeable';
 
 import { MacroBars } from '@/components/macro-bars';
@@ -201,15 +209,15 @@ export default function LogScreen() {
                   friction={2}
                   rightThreshold={32}
                   renderRightActions={() => (
-                    <Pressable style={styles.deleteAction} onPress={() => performDelete(e)}>
+                    <GesturePressable style={styles.deleteAction} onPress={() => performDelete(e)}>
                       <Ionicons name="trash-outline" size={18} color="#fff" />
                       <ThemedText type="smallBold" style={styles.deleteActionText}>
                         Delete
                       </ThemedText>
-                    </Pressable>
+                    </GesturePressable>
                   )}
                 >
-                  <Pressable
+                  <GesturePressable
                     onPress={() =>
                       router.push({ pathname: '/log-entry/[id]', params: { id: String(e.id) } })
                     }
@@ -226,7 +234,7 @@ export default function LogScreen() {
                       </ThemedText>
                     </View>
                     <ThemedText type="smallBold">{Math.round(e.calories)}</ThemedText>
-                  </Pressable>
+                  </GesturePressable>
                 </ReanimatedSwipeable>
               ))}
               {entries.length === 0 && (

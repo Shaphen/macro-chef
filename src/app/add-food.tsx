@@ -3,6 +3,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 
+import { GenericFoodResults } from '@/components/generic-food-results';
 import { MealPicker } from '@/components/meal-picker';
 import { OnlineFoodSearch } from '@/components/online-food-search';
 import { ThemedText } from '@/components/themed-text';
@@ -169,6 +170,10 @@ export default function AddFoodScreen() {
           Nothing saved yet.
         </ThemedText>
       )}
+
+      {/* Bundled USDA generics answer as you type (offline); the online
+          sources below stay behind their explicit tap. */}
+      <GenericFoodResults query={query} onPick={(food) => openFood(food.id)} />
 
       <OnlineFoodSearch query={query} onPick={(food) => openFood(food.id)} />
     </ScrollView>

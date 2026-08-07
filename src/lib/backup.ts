@@ -37,6 +37,9 @@ const TABLES = [
   // one row per day).
   'health_days',
   'health_workouts',
+  // seed_foods / seed_meta are deliberately absent: they're derived from an
+  // asset inside the app bundle (PLAN Part 5), so a restored device rebuilds
+  // them from its own bundle — backing up ~8k rows would only bloat the file.
 ] as const;
 
 const FORMAT_MARKER = 'macrochef-backup';

@@ -530,6 +530,49 @@ both use one implementation) adds the explicit "Search online" step — Open Foo
 when the proxy is configured — and picking a result saves it as a local food row before it becomes
 an ingredient. Typing still never fires network requests (§8).
 
+## Part 5 — Bundled offline generic-food database (added 2026-08-06)
+
+Decision context: reviewed the food-data landscape (OFF, USDA proxy, FatSecret, Edamam,
+Nutritionix, self-hosted merged DB) for a hypothetical 30K-DAU release. Verdict: stay on the free
+stack while this is a hobby project — OFF's rate limits are per *user* for device-direct calls so
+they never bind, and the real scale wall is the USDA proxy (one shared API key, 1,000 req/hr, and
+Vercel Hobby is non-commercial). A self-hosted OFF+USDA merge (~$20–50/mo) is the upgrade path *if*
+the app ever gets traction. What we built now is the free piece of that plan: the everyday
+"chicken breast" search answered **on-device, offline, instantly** — which also makes the proxy
+optional in practice, not just in code.
+
+### Data: USDA SR Legacy, generated into the bundle ✅
+`scripts/build-seed-foods.js` parses the extracted SR Legacy CSV dataset (public domain, download
+URL in the script header) into `src/data/seed-foods.json` — 7,793 generic foods as compact tuples
+(~860 KB): per-100 g core macros + fiber/sugar/satFat/sodium, plus the first household portion
+("1 cup, chopped or diced" = 140 g) as the food's serving. Foods missing any core macro are
+excluded outright (0 foods currently) — a seed DB must never smuggle incomplete macros past the
+"never save silently" rule (§7). SR Legacy's final release was 2018 and it is frozen upstream, so
+the script only reruns if we change what we extract; it then also regenerates
+`src/data/seed-foods-version.ts` (a tiny constant module) so the app can version-check without
+loading the big JSON. **Gotcha:** SR Legacy's `measure_unit` id 9999 is literally named
+"undetermined" — the household-measure text for those rows lives in `food_portion.modifier`.
+
+### Storage: seed_foods is a cache, not user data ✅
+Migration v5 adds `seed_foods` (+ name index) and `seed_meta` (single row: imported bundle
+version). `src/db/seed.ts#ensureSeedFoods` runs as part of the client.ts module side-effect: one
+SELECT against the generated version constant on normal launches; on mismatch (first run / new
+bundle) it require()s the JSON and rewrites the table wholesale in one transaction (prepared
+statement, ~8K rows). The snapshot rule (§5) does not apply — like `health_days`, rows are
+re-derivable — and both tables are deliberately **excluded from backups** (backup.ts): a restored
+device rebuilds them from its own bundle.
+
+### Search + logging flow ✅
+`components/generic-food-results.tsx` renders a "GENERIC FOODS (USDA)" section in the add-food
+screen and the recipe ingredient builder, **as you type** — it's purely local, so the "typing never
+fires network requests" rule (§8) is untouched; OFF/proxy stay behind the explicit button.
+`searchSeedFoods` (db/queries/seed-foods.ts) ANDs whitespace-split LIKE terms and orders shortest-
+name-first (SR descriptions grow a clause per qualifier, so short ≈ canonical). Picking a hit
+copies it into `foods` via `seedFoodToNewFood` (lib/seed-foods.ts) with `source='usda'` +
+`sourceId=fdcId` — the exact contract of the proxy path, so the two dedupe to one row — and seed
+hits already saved locally are hidden from the section. From there it's a normal local food:
+serving picker, snapshots, history, recipes.
+
 ## 12. Handoff notes (if a different session implements)
 - Read this doc top-to-bottom; §4–§7 are the contract. Keep every dependency Expo Go-compatible
   in v1 (no native modules beyond Expo SDK built-ins).

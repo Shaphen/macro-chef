@@ -152,6 +152,34 @@ export const healthWorkouts = sqliteTable('health_workouts', {
   distanceM: real('distance_m'),
 });
 
+/**
+ * Bundled offline generic-food database (PLAN Part 5): USDA SR Legacy,
+ * imported from src/data/seed-foods.json by ensureSeedFoods(). Asset-derived
+ * cache, not user data — excluded from backups, and the snapshot rule does
+ * not apply (rows are replaced wholesale when the bundled version changes).
+ * Nutrition is always per 100 g. Picking a seed result copies it into
+ * `foods` (source 'usda', sourceId = fdcId) — nothing ever references
+ * seed_foods rows directly.
+ */
+export const seedFoods = sqliteTable(
+  'seed_foods',
+  {
+    fdcId: integer('fdc_id').primaryKey(),
+    name: text('name').notNull(),
+    calories: real('calories').notNull(),
+    protein: real('protein').notNull(),
+    carbs: real('carbs').notNull(),
+    fat: real('fat').notNull(),
+    fiber: real('fiber'),
+    sugar: real('sugar'),
+    satFat: real('sat_fat'),
+    sodiumMg: real('sodium_mg'),
+    servingQty: real('serving_qty'), // grams in the household portion below
+    servingName: text('serving_name'), // "1 cup, chopped or diced"
+  },
+  (t) => [index('idx_seed_foods_name').on(t.name)],
+);
+
 export type Food = typeof foods.$inferSelect;
 export type NewFood = typeof foods.$inferInsert;
 export type LogEntry = typeof logEntries.$inferSelect;
@@ -165,4 +193,5 @@ export type Settings = typeof settings.$inferSelect;
 export type HealthDay = typeof healthDays.$inferSelect;
 export type NewHealthDay = typeof healthDays.$inferInsert;
 export type HealthWorkout = typeof healthWorkouts.$inferSelect;
+export type SeedFood = typeof seedFoods.$inferSelect;
 export type Meal = LogEntry['meal'];
