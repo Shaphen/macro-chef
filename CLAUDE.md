@@ -77,6 +77,13 @@ a real device, not the simulator.
   `prefill` param (`src/lib/food-prefill.ts`) with those fields blank. Online search UI is
   shared by the add flow and the recipe builder in `components/online-food-search.tsx`;
   network requests only ever fire on an explicit tap.
+- **Food search is scored, not filtered** (`src/lib/food-search.ts`, PLAN Part 7): both
+  `searchFoods` (saved foods) and `searchSeedFoods` normalize text and rank candidates, so word
+  order, extra words and small typos all still match. Don't reintroduce `LIKE` matching — matching
+  the whole query as one substring is the bug this replaced. Performance rules that matter if you
+  touch it: the edit-distance DP rows are reused module-level buffers, the fuzzy pass only runs
+  when the cheap exact pass comes back weak, and that trigger must key off match *quality* not
+  result *count* (a count threshold is silently satisfied by weak matches on a common word).
 - **Screen data reads** use `useDbData` (`src/hooks/use-db-data.ts`), which re-queries on
   screen focus — that's how tabs pick up writes made in modals. New screens reading the DB
   should use it rather than one-shot `useState` initializers.

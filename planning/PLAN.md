@@ -647,6 +647,61 @@ directly in the DB; the Settings UI simply no longer renders the field, and `sav
 omits `usdaProxyUrl` from its update so saving can't clear a developer-configured proxy. The About
 section now credits the bundled USDA SR Legacy data instead of describing the proxy as optional.
 
+## Part 7 — Tolerant search (added 2026-08-07)
+
+Reported by Shaphen: "Garlic Herb cream cheese" found nothing while "cream cheese" found
+"Garlic and Herb Cream Cheese", and "Matcha" appeared to behave differently from "matcha".
+
+### 7.1 What was actually wrong (two different bugs, one of them not what it looked like)
+- **Saved-food search matched the WHOLE query as one contiguous SQL substring**
+  (`LIKE '%garlic herb cream cheese%'`). One unanticipated word in the middle — "and" — lost the
+  match completely, while a shorter query that happened to be contiguous succeeded. Reproduced
+  exactly in SQLite before changing anything.
+- **The case difference was not case at all.** SQLite's `LIKE` is case-insensitive for ASCII by
+  default, verified directly: `%Matcha%` and `%matcha%` return identical rows. The real cause is
+  that OFF rate-limits searches (**10/min per user**) and answers a throttled request with an
+  **HTTP 503 HTML page** — which the client caught and rendered as "No results." A retry moments
+  later succeeded, making the search look case-sensitive/random. Confirmed live: a second search
+  seconds after the first returned 503 HTML.
+
+### 7.2 Scored matching instead of exact filtering ✅
+`src/lib/food-search.ts` (pure, unit-tested) now backs both the saved-food search and the bundled
+generic search. Text is normalized (accents folded, lowercased, punctuation → spaces — USDA names
+are comma-stacked and brands are full of `&`/`-`), then every query word scores its best match
+against the candidate's words: exact 1.0 > prefix 0.9 > substring 0.75 > within one/two edits
+0.55/0.40. The average over query length, plus contiguous-phrase (+0.4) and leading-match (+0.25)
+bonuses, is the score; **at least half the typed words must land**, which is what stops a common
+word like "cheese" dragging in the database when four words were typed. Word order is irrelevant
+("greek yogurt" → "Yogurt, Greek"), extra words are forgiven, and near-misses still surface as
+ranked suggestions rather than vanishing. Saved-food ties still break by useCount/lastUsedAt, so
+familiar foods stay on top.
+
+### 7.3 Making it fast enough to run locally ✅ (two non-obvious traps)
+Naive scoring was **~32 ms per keystroke** over the 7.8k-row seed database. Fixes, in order of
+impact: (1) `editDistanceWithin` allocated two DP rows per call and is invoked ~100k times per
+query — the rows are now **module-level reused buffers**; (2) a two-pass strategy
+(`searchWithFallback`) runs a cheap exact pass over everything and only pays for typo tolerance
+when that pass came back thin; (3) the fuzzy branch is skipped once a word already scores above
+`BEST_FUZZY_SCORE`, since a typo match can no longer win. Common queries are now ~1–2 ms, worst
+case ~24 ms, and the generic-results component **debounces 140 ms** so the worst case never lands
+on the keystroke path.
+**The trap worth remembering:** the fallback originally triggered on result *count*, which looked
+sensible and quietly broke quality — "chiken breast" finds five-plus exact matches on "breast"
+(quail, pheasant, turkey…), so the count threshold was satisfied and the fuzzy pass never ran,
+returning quail instead of chicken. The trigger must consider match *quality* (`STRONG_MATCH_SCORE`
+= no candidate matched essentially every word), not how many rows came back. There is a regression
+test for exactly this.
+Seed-name normalization is cached in a module-level index — safe because `ensureSeedFoods()` runs
+inside the db/client.ts side-effect, strictly before any query file can be called, and nothing
+mutates the table at runtime.
+
+### 7.4 A failed online search no longer reads as "no results" ✅
+`searchProducts` throws a typed `OffSearchError` (covering both non-OK statuses and the HTML-parses
+-as-SyntaxError case) and `OnlineFoodSearch` tracks that separately from an empty result set,
+showing "Open Food Facts didn't respond — it limits how often you can search" instead of
+"No results." Better local matching also means far fewer online searches, which is the real defence
+against that rate limit.
+
 ## 12. Handoff notes (if a different session implements)
 - Read this doc top-to-bottom; §4–§7 are the contract. Keep every dependency Expo Go-compatible
   in v1 (no native modules beyond Expo SDK built-ins).

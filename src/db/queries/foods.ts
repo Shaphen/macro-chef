@@ -1,19 +1,43 @@
-import { and, desc, eq, like, or, sql } from 'drizzle-orm';
+import { and, desc, eq, sql } from 'drizzle-orm';
 
+import { parseQuery, prepareTarget, searchWithFallback } from '../../lib/food-search';
 import { db } from '../client';
 import { foods, type Food, type NewFood } from '../schema';
 
 const notDeleted = eq(foods.isDeleted, 0);
 
+/**
+ * Tolerant search over the user's saved foods (PLAN Part 7).
+ *
+ * This used to match the WHOLE query as one contiguous SQL substring, so
+ * "garlic herb cream cheese" found nothing while "cream cheese" found
+ * "Garlic and Herb Cream Cheese" — a single unanticipated word in the middle
+ * lost the match. Scoring now happens in JS (see lib/food-search.ts): word
+ * order is free, extra/missing words are forgiven, and typos still land.
+ *
+ * The whole (non-deleted) table is scanned because `LIKE` cannot express
+ * "close enough" and a personal food library is small — hundreds of rows,
+ * not millions. Revisit with an FTS index only if that stops being true.
+ */
 export function searchFoods(query: string, limit = 30): Food[] {
-  const q = `%${query.trim()}%`;
-  return db
-    .select()
-    .from(foods)
-    .where(and(notDeleted, or(like(foods.name, q), like(foods.brand, q))))
-    .orderBy(desc(foods.useCount), desc(foods.lastUsedAt))
-    .limit(limit)
-    .all();
+  const parsed = parseQuery(query);
+  if (!parsed) return [];
+
+  const rows = db.select().from(foods).where(notDeleted).all();
+  return searchWithFallback(rows, parsed, (row) =>
+    prepareTarget(row.brand ? `${row.name} ${row.brand}` : row.name),
+  )
+    // Ties are broken the way the list was always ordered — the food you
+    // reach for most, most recently — so familiar entries stay on top.
+    .sort(
+      (a, b) =>
+        b.score - a.score ||
+        b.item.useCount - a.item.useCount ||
+        (b.item.lastUsedAt ?? 0) - (a.item.lastUsedAt ?? 0) ||
+        a.item.name.length - b.item.name.length,
+    )
+    .slice(0, limit)
+    .map((hit) => hit.item);
 }
 
 /** History list: most recently / frequently used first (PLAN §8). */

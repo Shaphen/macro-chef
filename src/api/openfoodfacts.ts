@@ -63,6 +63,22 @@ export interface OffSearchHit {
   brand?: string;
 }
 
+/**
+ * Thrown when the search endpoint could not be reached or did not return
+ * usable JSON. This MUST stay distinguishable from "searched fine, found
+ * nothing": OFF rate-limits searches to 10/min per user and answers a
+ * throttled request with an HTTP 503 HTML page, so treating every failure as
+ * an empty result set made a temporary throttle look like a missing product
+ * (and, because a retry moments later succeeds, made the search look
+ * case-sensitive or otherwise random).
+ */
+export class OffSearchError extends Error {
+  constructor(detail: string) {
+    super(`Open Food Facts search failed: ${detail}`);
+    this.name = 'OffSearchError';
+  }
+}
+
 /** Text search, used only after local DB results ("Search online"). */
 export async function searchProducts(query: string, signal?: AbortSignal): Promise<OffSearchHit[]> {
   const params = new URLSearchParams({
@@ -71,12 +87,21 @@ export async function searchProducts(query: string, signal?: AbortSignal): Promi
     page_size: '20',
     json: '1',
   });
-  const res = await fetch(`${BASE}/cgi/search.pl?${params}`, {
-    headers: { 'User-Agent': USER_AGENT },
-    signal,
-  });
-  if (!res.ok) throw new Error(`Open Food Facts search error ${res.status}`);
-  const json = await res.json();
+  let json: any;
+  try {
+    const res = await fetch(`${BASE}/cgi/search.pl?${params}`, {
+      headers: { 'User-Agent': USER_AGENT },
+      signal,
+    });
+    if (!res.ok) throw new OffSearchError(`HTTP ${res.status}`);
+    // A throttled OFF answers with an HTML error page, which parses as a
+    // SyntaxError rather than failing the status check.
+    json = await res.json();
+  } catch (e) {
+    if (e instanceof OffSearchError) throw e;
+    if (e instanceof Error && e.name === 'AbortError') throw e;
+    throw new OffSearchError(e instanceof Error ? e.message : 'network error');
+  }
   return (json.products ?? [])
     .filter((p: any) => p.product_name)
     .map((p: any) => ({ code: p.code, name: p.product_name, brand: p.brands || undefined }));

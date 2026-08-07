@@ -45,12 +45,17 @@ export function OnlineFoodSearch({
   const [offHits, setOffHits] = useState<OffSearchHit[] | null>(null);
   const [usdaHits, setUsdaHits] = useState<UsdaHit[] | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  // Distinct from `offHits === []`: a failed search must never be reported as
+  // "no results" (see OffSearchError) — OFF throttles at 10 searches/min and
+  // a retry seconds later succeeds, which reads as the search being flaky.
+  const [offFailed, setOffFailed] = useState(false);
   const [busy, setBusy] = useState(false);
 
   const clear = useCallback(() => {
     setOffHits(null);
     setUsdaHits(null);
     setNotice(null);
+    setOffFailed(false);
   }, []);
 
   // Results belong to the query that produced them.
@@ -65,7 +70,10 @@ export function OnlineFoodSearch({
     clear();
     // OFF and USDA are independent; run both (when configured) and let each
     // fail on its own.
-    const off = searchProducts(trimmed).catch(() => [] as OffSearchHit[]);
+    const off = searchProducts(trimmed).catch(() => {
+      setOffFailed(true);
+      return null;
+    });
     const usda = usdaBase
       ? searchUsda(usdaBase, trimmed).then(
           (hits) => hits,
@@ -136,6 +144,12 @@ export function OnlineFoodSearch({
       {notice && (
         <ThemedText type="small" style={{ color: '#f2a33c' }}>
           {notice}
+        </ThemedText>
+      )}
+      {offFailed && (
+        <ThemedText type="small" style={{ color: '#f2a33c' }}>
+          Open Food Facts didn’t respond — it limits how often you can search. Wait a moment
+          and tap search again.
         </ThemedText>
       )}
       {offHits && (

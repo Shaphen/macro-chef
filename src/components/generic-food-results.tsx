@@ -1,4 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
+import { useEffect, useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
@@ -34,12 +35,18 @@ export function GenericFoodResults({
   const theme = useTheme();
   const trimmed = query.trim();
 
+  // Matching is tolerant, which costs real work (typo tolerance scores every
+  // one of ~7.8k names). Settling for a beat before searching keeps that off
+  // the keystroke path — it stays local and instant-feeling, it just doesn't
+  // re-rank the whole database mid-word.
+  const settled = useDebounced(trimmed, 140);
+
   const { data } = useDbData(
     () =>
-      trimmed.length < 2
+      settled.length < 2
         ? []
-        : searchSeedFoods(trimmed).filter((s) => !getFoodBySource('usda', String(s.fdcId))),
-    [trimmed],
+        : searchSeedFoods(settled).filter((s) => !getFoodBySource('usda', String(s.fdcId))),
+    [settled],
   );
 
   if (data.length === 0) return null;
@@ -75,6 +82,16 @@ export function GenericFoodResults({
       ))}
     </>
   );
+}
+
+/** Value that only catches up once `delay` has passed without a change. */
+function useDebounced<T>(value: T, delay: number): T {
+  const [settled, setSettled] = useState(value);
+  useEffect(() => {
+    const timer = setTimeout(() => setSettled(value), delay);
+    return () => clearTimeout(timer);
+  }, [value, delay]);
+  return settled;
 }
 
 const styles = StyleSheet.create({
